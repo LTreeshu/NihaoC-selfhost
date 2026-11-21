@@ -1,0 +1,4 @@
+func main() {
+    puts("hello n0")
+    print("n=%d\n", 7)
+}

@@ -1,0 +1,19 @@
+# 构建与运行产物
+boot1.exe
+boot2.exe
+*.exe
+*.exe.c
+output.c
+input.n0
+*.actual
+dbg.log
+b.log
+
+# 临时探针
+t_*.nc
+t_*.c
+t_*.out
+d_*.c
+d_*.out
+x_*.c
+x_*.out

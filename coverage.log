@@ -1,0 +1,75 @@
+DIFF  alignof_builtin
+OK    array_capacity_1d
+OK    array_capacity_tiers
+OK    array_member_default
+OK    borrow
+OK    bracket_attrs
+FAIL  cooking_ct_func (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_cooking_ct_func.c:12: error: 'SIDE' undeclared 
+OK    decl_no_init
+OK    deref_slice
+OK    designator_init
+OK    features
+OK    flow
+OK    flow_move
+OK    flow_no_free
+OK    for_init_forms
+FAIL  fx_types (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_fx_types.c:8: error: cannot cast from/to void 
+OK    goto_forms
+OK    hello
+OK    ir_array
+OK    ir_arrow
+OK    ir_bitfield
+DIFF  ir_builtin
+OK    ir_conv
+FAIL  ir_cook (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_ir_cook.c:12: error: 'BASE' undeclared 
+OK    ir_demo
+OK    ir_dynarr
+OK    ir_expr
+OK    ir_fcall
+OK    ir_float
+OK    ir_fptr
+OK    ir_goto
+OK    ir_is
+FAIL  ir_loop (tcc 编译失败): tcc: error: could not write 'C:/Users/LSG/AppData/Local/Temp/cov_ir_loop.exe': Permission denied 
+OK    ir_mr
+FAIL  ir_multi (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_ir_multi.c:8: error: 'a' undeclared 
+OK    ir_narray
+OK    ir_narrow
+OK    ir_nested
+DIFF  ir_prefix
+OK    ir_ptr
+FAIL  ir_ptr2 (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_ir_ptr2.c:8: error: 'q' undeclared 
+OK    ir_slice
+OK    ir_sparam
+OK    ir_str
+OK    ir_struct
+OK    ir_switch
+OK    ir_trunc
+OK    ir_vis
+DIFF  is_no_fallthrough
+FAIL  is_pattern_forms (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_is_pattern_forms.c:10: error: 'func' undeclared 
+OK    is_vis_patterns
+FAIL  len_builtin (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_len_builtin.c:9: error: 's' undeclared 
+OK    literal_forms
+OK    malloc_demo
+OK    many_calls
+SKIP  mathmod (no .expect)
+SKIP  module_top_forms (no .expect)
+FAIL  multi_arr_decl (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_multi_arr_decl.c:9: error: 'aa' undeclared 
+OK    nested_agg_value
+FAIL  ownerof (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_ownerof.c:12: warning: implicit declaration of function 'structof' C:/Users/LSG/AppData/Local/Temp/cov_ownerof.c:12: error: 'name' undeclared 
+DIFF  p0_case
+OK    p0_link
+OK    param_prefix
+OK    pattern
+OK    return_flow
+OK    slice_str_infer
+OK    static_param_share
+OK    stmt_terminators
+OK    str_array_init
+OK    struct_member_default
+OK    struct_param_prefix
+FAIL  transfer (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_transfer.c:9: error: initializer element is not constant 
+OK    type_forms
+FAIL  use_mod (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_use_mod.c:9: warning: implicit declaration of function 'add' tcc: error: undefined symbol 'add' 
+FAIL  void_slot_infer (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_void_slot_infer.c:10: error: struct or union expected 
