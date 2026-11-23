@@ -18,7 +18,10 @@ NihaoC-selfhost/
 ├── coverage.sh        S2 度量：用 ncc 自带 pos 用例喂 boot2，逐份比对 .expect
 ├── err.sh             诊断度量：err 用例必须「报错 + 无产物 + 消息命中 .expect」
 ├── selfhost.sh        S3 闭环：ncc→boot2→boot3→不动点 + 样例回归
-├── coverage.log       最近一次度量明细（OK / DIFF / FAIL 逐份）
+├── coverage.log       最近一次 pos 度量明细（boot2）
+├── err.log            最近一次 err 度量明细（boot2）
+├── coverage-boot3.log boot3（自举产物）的 pos 明细
+├── err-boot3.log      boot3 的 err 明细
 ├── boot1/boot.nc      Stage 1：N0 子集 → C（约 380 行）
 ├── boot2/boot.nc      Stage 2：NihaoC 语法 → C（token 化 + 直接出码，约 1900 行）
 ├── samples/*.n0       N0 样例 + *.expected
@@ -73,12 +76,16 @@ err 用例：OK 36 / FAIL 0
 ### 自编译闭环（`./selfhost.sh`）
 
 ```
-[1/4] ncc 构建 boot2
-[2/4] boot2 编译自身 → b3.c → boot3
-[3/4] boot3 编译自身 → b4.c，FIXPOINT OK（b3.c 与 b4.c 逐字节相同）
-[4/4] boot3 / boot4 跑 samples/*.n0 → 全部 PASS
+[1/5] ncc 构建 boot2
+[2/5] boot2 编译自身 → b3.c → boot3
+[3/5] boot3 编译自身 → b4.c，FIXPOINT OK（b3.c 与 b4.c 逐字节相同）
+[4/5] boot3 / boot4 跑 samples/*.n0 → 全部 PASS
+[5/5] boot3 跑全量 pos / err 语料 → boot3: pos OK 73 / err OK 36
 SELFHOST OK
 ```
+
+第 5 步是**自举产物的等价性验收**：`boot3` 是 boot2 编译出来的编译器，它跑同一套语料
+同样拿到 **pos 73/73、err 36/36**（明细在 `coverage-boot3.log` / `err-boot3.log`）。
 
 ## N0 / boot1（S1，已完成）
 
@@ -115,7 +122,7 @@ N0 是 NihaoC 的极小子集（`func` / 声明 / 赋值 / `if-else` / `while` /
 
 | 项 | 现状 |
 |---|---|
-| 诊断输出流 | 写 stdout（ncc 写 stderr）；harness 合并后判据等价 |
+| 诊断输出流 | 写 **stdout**（ncc 写 stderr）。原因：boot2 自身由 ncc 编译，而 ncc 只提供 `print`/`puts`，没有 stderr 通道；harness 合并两股流后判据等价 |
 | 诊断规则深度 | 按语料逐族实现：可见性矩阵是 4 档简化版，所有权只跟 `flow` 源的借用/转移，`m2` 的调用实参检查只对 `const` 实参生效 |
 | 错误恢复 | 出错后按行/括号跳过，不保证只报一条（`err.sh` 只要求命中期望串） |
 | 未覆盖 | 语言层新特性（动态数组增长、切片运行时长度）、ASan 级别的内存安全验证、`ir-riscv64`/`ir-loongarch64` 交叉后端 |

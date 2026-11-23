@@ -14,18 +14,18 @@ export NIHAO_TCC_DIR="${NIHAO_TCC_DIR:-D:/Program Files/tcc}"
 
 fail=0
 
-echo "[1/4] ncc 构建 boot2"
+echo "[1/5] ncc 构建 boot2"
 "$NCC" build boot2/boot.nc -backend ir-c -o boot2.exe 2>&1 | grep -v "warning:" || true
 [ -f boot2.exe ] || { echo "FAIL: boot2 构建失败"; exit 1; }
 
-echo "[2/4] boot2 编译自身 → boot3"
+echo "[2/5] boot2 编译自身 → boot3"
 rm -f boot3.exe
 BOOT_IN=boot2/boot.nc BOOT_OUT=b3.c ./boot2.exe > /dev/null || { echo "FAIL: boot2 自编译失败"; exit 1; }
 if ! "$TCC" b3.c -o boot3.exe 2>"$TMP/tcc1.log"; then
     echo "FAIL: tcc 构建 boot3 失败"; grep -v "warning:" "$TMP/tcc1.log" | head -5; exit 1
 fi
 
-echo "[3/4] boot3 自编译 → 不动点比对"
+echo "[3/5] boot3 自编译 → 不动点比对"
 BOOT_IN=boot2/boot.nc BOOT_OUT=b4.c ./boot3.exe > /dev/null || { echo "FAIL: boot3 自编译失败"; exit 1; }
 if cmp -s b3.c b4.c; then
     echo "FIXPOINT OK（b3.c 与 b4.c 逐字节相同）"
@@ -39,7 +39,7 @@ if ! "$TCC" b4.c -o boot4.exe 2>"$TMP/tcc2.log"; then
     echo "FAIL: tcc 构建 boot4 失败"; grep -v "warning:" "$TMP/tcc2.log" | head -5; fail=1
 fi
 
-echo "[4/4] boot3 / boot4 跑样例"
+echo "[4/5] boot3 / boot4 跑样例"
 for b in boot3 boot4; do
     for src in samples/*.n0; do
         name=$(basename "$src" .n0)
@@ -54,6 +54,18 @@ for b in boot3 boot4; do
         fi
     done
 done
+
+echo "[5/5] boot3 跑全量 pos / err 语料（自举产物等价性）"
+REBUILD=0 BOOT=./boot3.exe LOG=coverage-boot3.log bash coverage.sh > "$TMP/b3pos.txt" 2>&1
+REBUILD=0 BOOT=./boot3.exe LOG=err-boot3.log bash err.sh > "$TMP/b3err.txt" 2>&1
+p3=$(grep -o "OK [0-9]*" "$TMP/b3pos.txt" | head -1 | awk '{print $2}')
+e3=$(grep -o "OK [0-9]*" "$TMP/b3err.txt" | head -1 | awk '{print $2}')
+echo "boot3: pos OK ${p3:-?} / err OK ${e3:-?}"
+if [ "${p3:-0}" != "73" ] || [ "${e3:-0}" != "36" ]; then
+    echo "FAIL: boot3 语料结果与 boot2 不一致"
+    head -5 "$TMP/b3pos.txt" "$TMP/b3err.txt"
+    fail=1
+fi
 
 if [ "$fail" -eq 0 ]; then
     echo "SELFHOST OK"

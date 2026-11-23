@@ -6,7 +6,8 @@ cd "$(dirname "$0")"
 BOOT="${BOOT:-./boot2.exe}"
 NCC_TESTS="${NCC_TESTS:-../NihaoC/ncc/tests}"
 TMP="${TMP:-/tmp}"
-: > err.log
+LOG="${LOG:-err.log}"
+: > "$LOG"
 
 pass=0
 fail=0
@@ -14,7 +15,7 @@ fail=0
 for src in "$NCC_TESTS"/err/*.nc; do
     name=$(basename "$src" .nc)
     expect="$NCC_TESTS/err/$name.expect"
-    [ -f "$expect" ] || { echo "SKIP  $name (no .expect)" >> err.log; continue; }
+    [ -f "$expect" ] || { echo "SKIP  $name (no .expect)" >> "$LOG"; continue; }
     rm -f "$TMP/err_$name.c"
 
     out=$(BOOT_IN="$src" BOOT_OUT="$TMP/err_$name.c" "$BOOT" 2>&1)
@@ -32,12 +33,12 @@ for src in "$NCC_TESTS"/err/*.nc; do
 
     if [ -z "$reason" ]; then
         pass=$((pass+1))
-        echo "OK    $name" >> err.log
+        echo "OK    $name" >> "$LOG"
     else
         fail=$((fail+1))
-        echo "FAIL  $name [$reason]" >> err.log
+        echo "FAIL  $name [$reason]" >> "$LOG"
     fi
 done
 
 echo "err 用例：OK $pass / FAIL $fail"
-echo "明细见 err.log"
+echo "明细见 "$LOG""

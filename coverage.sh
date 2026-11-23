@@ -19,30 +19,31 @@ fi
 pass=0
 fail=0
 skip=0
-: > coverage.log
+LOG="${LOG:-coverage.log}"
+: > "$LOG"
 
 for src in "$NCC_TESTS"/pos/*.nc; do
     name=$(basename "$src" .nc)
     expect="$NCC_TESTS/pos/$name.expect"
-    [ -f "$expect" ] || { skip=$((skip+1)); echo "SKIP  $name (no .expect)" >> coverage.log; continue; }
+    [ -f "$expect" ] || { skip=$((skip+1)); echo "SKIP  $name (no .expect)" >> "$LOG"; continue; }
 
     if ! BOOT_IN="$src" BOOT_INC="$NCC_TESTS/pos" BOOT_OUT="$TMP/cov_$name.c" timeout 5 "$BOOT" > "$TMP/cov_$name.gen" 2>&1; then
-        fail=$((fail+1)); echo "FAIL  $name (boot2 崩溃/异常)" >> coverage.log; continue
+        fail=$((fail+1)); echo "FAIL  $name (boot2 崩溃/异常)" >> "$LOG"; continue
     fi
     if ! timeout 10 "$TCC" "$TMP/cov_$name.c" -o "$TMP/cov_$name.exe" > "$TMP/cov_$name.tcc" 2>&1; then
         fail=$((fail+1))
-        echo "FAIL  $name (tcc 编译失败): $(head -2 "$TMP/cov_$name.tcc" | tr '\n' ' ')" >> coverage.log
+        echo "FAIL  $name (tcc 编译失败): $(head -2 "$TMP/cov_$name.tcc" | tr '\n' ' ')" >> "$LOG"
         continue
     fi
     timeout 5 "$TMP/cov_$name.exe" > "$TMP/cov_$name.out" 2>&1
     if diff -q --strip-trailing-cr "$TMP/cov_$name.out" "$expect" > /dev/null 2>&1; then
-        pass=$((pass+1)); echo "OK    $name" >> coverage.log
+        pass=$((pass+1)); echo "OK    $name" >> "$LOG"
     else
         fail=$((fail+1))
-        echo "DIFF  $name" >> coverage.log
+        echo "DIFF  $name" >> "$LOG"
     fi
 done
 
 total=$((pass+fail+skip))
 echo "pos 用例 $total 份：OK $pass / FAIL $fail / SKIP $skip"
-echo "明细见 coverage.log"
+echo "明细见 "$LOG""
