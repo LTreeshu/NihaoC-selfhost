@@ -1566,6 +1566,12 @@ func stmt() {
         return
     }
     if is_kw("is") == 1 { emit_is() return }
+    if hasv == 1 {
+        if is_p("{") == 1 {
+            emit_multi_decl(vis)
+            return
+        }
+    }
     if ck() == 1 {
         if is_kw_at(gi + 1, "struct") == 1 { emit_type_def(1, 0) return }
         if is_kw_at(gi + 1, "union") == 1 { emit_type_def(2, 0) return }
@@ -1601,6 +1607,18 @@ func stmt() {
                 if txt_eq(gi + 1, "=") == 1 {
                     nt i32 = gi
                     nx i32 = gi + 2
+                    if tk_kind(nx) == 4 {
+                        eo("char* ")
+                        etk(nt)
+                        si5 i32 = sym_add(nt, 10, 0, 0, vis)
+                        dv4 void = gdimv
+                        dv4.(i32[512])[si5] = 1
+                        espace() ec(61) espace()
+                        etk(nx)
+                        eo(";")
+                        gi = nx + 1
+                        return
+                    }
                     if tk_kind(nx) == 6 {
                         if txt_eq(nx, "&") == 1 {
                             if tk_kind(nx + 1) == 1 {
@@ -2739,16 +2757,55 @@ func emit_multi_decl(vis i32) {
     c i32 = code_of(gi)
     if c == 0 { c = 4 }
     adv()
+    dstart i32 = gi
     d i32 = skip_dims()
+    dend i32 = gi
+    fe i32 = first_dim_empty(dstart, dend)
     k i32 = 0
     while k < gmdn {
         nt i32 = nm.(i32[16])[k]
         if vis == 1 { eo("const ") }
-        if c == 11 { eo("char* ") }
-        else if c == 12 { eo("void* ") }
-        else { ctype(c) espace() }
-        etk(nt)
-        sym_add(nt, c, d, 0, vis)
+        if c == 10 {
+            if d > 0 {
+                if fe == 1 {
+                    eo("char* ")
+                    etk(nt)
+                } else {
+                    eo("char ")
+                    etk(nt)
+                    gi = dstart
+                    emit_dims_c(c)
+                    gi = dend
+                }
+            } else {
+                eo("char ")
+                etk(nt)
+            }
+        } else if c == 11 {
+            eo("char* ")
+            etk(nt)
+        } else if c == 12 {
+            eo("void* ")
+            etk(nt)
+        } else {
+            ctype(c)
+            espace()
+            etk(nt)
+            if d > 0 {
+                gi = dstart
+                emit_dims_c(c)
+                gi = dend
+            }
+        }
+        si4 i32 = sym_add(nt, c, d, 0, vis)
+        if c == 10 {
+            if d > 0 {
+                if fe == 1 {
+                    dv3 void = gdimv
+                    dv3.(i32[512])[si4] = 1
+                }
+            }
+        }
         if ss.(i32[16])[k] != ee.(i32[16])[k] {
             espace() ec(61) espace()
             p2 i32 = ss.(i32[16])[k]
@@ -2763,6 +2820,7 @@ func emit_multi_decl(vis i32) {
         eo("; ")
         k = k + 1
     }
+    gi = dend
 }
 
 func emit_type_def(kind i32, inbody i32) {

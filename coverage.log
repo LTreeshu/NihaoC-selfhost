@@ -30,9 +30,9 @@ OK    ir_float
 OK    ir_fptr
 OK    ir_goto
 OK    ir_is
-FAIL  ir_loop (tcc 编译失败): tcc: error: could not write 'C:/Users/LSG/AppData/Local/Temp/cov_ir_loop.exe': Permission denied 
+OK    ir_loop
 OK    ir_mr
-FAIL  ir_multi (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_ir_multi.c:8: error: 'a' undeclared 
+OK    ir_multi
 OK    ir_narray
 OK    ir_narrow
 OK    ir_nested
@@ -49,13 +49,13 @@ OK    ir_vis
 DIFF  is_no_fallthrough
 FAIL  is_pattern_forms (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_is_pattern_forms.c:10: error: 'func' undeclared 
 OK    is_vis_patterns
-FAIL  len_builtin (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_len_builtin.c:9: error: 's' undeclared 
+OK    len_builtin
 OK    literal_forms
 OK    malloc_demo
 OK    many_calls
 SKIP  mathmod (no .expect)
 SKIP  module_top_forms (no .expect)
-FAIL  multi_arr_decl (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_multi_arr_decl.c:9: error: 'aa' undeclared 
+OK    multi_arr_decl
 OK    nested_agg_value
 FAIL  ownerof (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_ownerof.c:12: warning: implicit declaration of function 'structof' C:/Users/LSG/AppData/Local/Temp/cov_ownerof.c:12: error: 'name' undeclared 
 DIFF  p0_case
