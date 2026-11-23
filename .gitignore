@@ -34,3 +34,12 @@ u.out
 q.c
 q.out
 t_*.nc
+
+# 自编译闭环产物
+b3.c
+b4.c
+boot3.exe
+boot4.exe
+sh_*.c
+sh_*.out
+t_vs.*

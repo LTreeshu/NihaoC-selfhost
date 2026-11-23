@@ -29,7 +29,6 @@ var gn i32          /* 符号数 */
 var gnames i64      /* 符号名 token 下标（i32[256]） */
 var gtypes i64      /* 类型码 */
 var gdims i64       /* 数组维数（0=标量，1=一维…） */
-var gdimv i64       /* 第一维长度原文 token（-1 未知） */
 var gpt i64         /* 指向类型码（0=未知） */
 var gvis i64        /* 可见性 0..4 */
 
@@ -61,6 +60,7 @@ var gmbit i64
 var gretvis i32
 var gmsrc i64
 var gmtk i64
+var gskipdefs i32
 var gtop i32
 var ginitn i32
 var giname i64
@@ -72,9 +72,9 @@ var gslice i64
 var gmdef2 i64
 var gsel i64
 var gmdn i32
-var gmdname i64
-var gmds i64
-var gmde i64
+var gmd i64
+var gstate i64
+var glastfrz i32
 
 /* ================= 词法 ================= */
 
@@ -265,6 +265,8 @@ func lex() {
                 if n2 == 0 { if c == 46 { if sch(i + 1) == 46 { n2 = 2 } } }
                 if n2 == 0 { if c == 61 { n2 = m2(i, 61, 62) } }
                 if n2 == 0 { if c == 58 { n2 = m2(i, 58, 61) } }
+                if n2 == 0 { if c == 63 { n2 = m2(i, 63, 61) } }
+                if n2 == 0 { if c == 63 { n2 = m2(i, 63, 46) } }
                 if n2 == 0 { n2 = 1 }
                 put_tok(6, i, n2)
                 i = i + n2
@@ -351,11 +353,8 @@ func eat_p(s void) i32 {
 }
 
 func need_p(s void) {
-    if is_p(s) == 0 {
-        gerr = gerr + 1
-    } else {
-        adv()
-    }
+    /* 解析恢复：只推进，不计入诊断数（诊断数只由 emsg 记） */
+    if is_p(s) == 1 { adv() }
 }
 
 func is_kw(s void) i32 {
@@ -364,6 +363,30 @@ func is_kw(s void) i32 {
 }
 
 /* ================= 输出 ================= */
+
+/* 报错：消息打 stdout（err.sh 合并 2>&1 判据），并记错误数 */
+func tok_cstr(i i32) {
+    st i32 = tk_st(i)
+    n i32 = tk_ln(i)
+    k i32 = 0
+    o void = gout
+    while k < n {
+        o.(i8[524288])[k] = sch(st + k)
+        k = k + 1
+    }
+    o.(i8[524288])[n] = 0
+}
+
+func emsg(s void) {
+    print("错误: %s\n", s)
+    gerr = gerr + 1
+}
+
+func emsg1(pre void, tok i32) {
+    tok_cstr(tok)
+    print("错误: %s%s\n", pre, gout)
+    gerr = gerr + 1
+}
 
 func ec(ch i32) {
     o void = gout
@@ -422,21 +445,44 @@ func sym_add(nt i32, code i32, dims i32, pt i32, vis i32) i32 {
     a void = gnames
     b void = gtypes
     c void = gdims
-    d void = gdimv
     e void = gpt
     f void = gvis
     a.(i32[512])[gn] = nt
     b.(i32[512])[gn] = code
     c.(i32[512])[gn] = dims
-    d.(i32[512])[gn] = -1
     e.(i32[512])[gn] = pt
     f.(i32[512])[gn] = vis
-    dv void = gdimv
     sc void = gslice
-    dv.(i32[512])[gn] = 0
     sc.(i32[512])[gn] = 0
     gn = gn + 1
     return gn - 1
+}
+
+func gmd_name(k i32) i32 {
+    a void = gmd
+    return a.(i32[48])[k * 3]
+}
+
+func gmd_s(k i32) i32 {
+    a void = gmd
+    return a.(i32[48])[k * 3 + 1]
+}
+
+func gmd_e(k i32) i32 {
+    a void = gmd
+    return a.(i32[48])[k * 3 + 2]
+}
+
+func gmd_set(k i32, nm i32, st i32, en i32) {
+    a void = gmd
+    a.(i32[48])[k * 3] = nm
+    a.(i32[48])[k * 3 + 1] = st
+    a.(i32[48])[k * 3 + 2] = en
+}
+
+func gdims_set(i i32, v i32) {
+    c8 void = gdims
+    c8.(i32[512])[i] = v
 }
 
 func sym_find(nt i32) i32 {
@@ -1066,6 +1112,8 @@ func cooking_block() {
                 adv()
             }
         } else {
+            if is_kw("var") == 1 { emsg("unsupported cooking item 'var'") }
+            else if ck() == 1 { emsg("unsupported cooking item") }
             while ck() != 8 {
                 if tk_kind(gi) == 7 { break }
                 if is_p("}") == 1 { break }
@@ -1237,6 +1285,20 @@ func expr_postfix() {
                 expr_wrap_deref(p0, tc3)
                 continue
             }
+            if gi == t0 + 2 {
+            if tk_kind(t0) == 1 {
+                sv9 i32 = sym_find(t0)
+                if sv9 >= 0 {
+                    if sym_code(sv9) == 12 {
+                        if 1 == 1 {
+                            if sym_dims(sv9) == 0 {
+                            emsg("cannot subscript the generic 'void' pointer (use '.(T)' first)")
+                            }
+                        }
+                    }
+            }
+                }
+            }
             ec(91)
             if is_p("..") == 1 {
                 adv()
@@ -1274,9 +1336,14 @@ func expr_postfix() {
                     tc i32 = 0
                     ds i32 = -1
                     de i32 = -1
+                    texp i32 = 0
                     if is_p(")") == 0 {
+                        texp = 1
                         tc = code_of(gi)
                         if tc == 0 { tc = 4 }
+                        if tc == 12 {
+                            if is_p("[") == 1 { }
+                        }
                         adv()
                         if is_p("[") == 1 {
                             ds = gi
@@ -1290,6 +1357,24 @@ func expr_postfix() {
                         if is_p("]") == 1 { adv() }
                     }
                     need_p(")")
+                    if tc == 12 {
+                        if ds < 0 { emsg("'.()' dereference: 'void' has no size — use a scalar type") }
+                    }
+                    if texp == 1 {
+                    if tk_kind(t0) == 1 {
+                        sv11 i32 = sym_find(t0)
+                        if sv11 >= 0 {
+                            sc10 void = gslice
+                            sz10 i32 = sc10.(i32[512])[sv11]
+                            if sz10 > 0 {
+                                if size_of_code(tc) > sz10 {
+                                    print("错误: reads %d bytes from a %d-byte allocation\n", size_of_code(tc), sz10)
+                                    gerr = gerr + 1
+                                }
+                            }
+                        }
+                    }
+                    }
                     if ds >= 0 {
                         expr_wrap_deref_arr(p0, tc, ds, de)
                     } else {
@@ -1304,6 +1389,20 @@ func expr_postfix() {
                     continue
                 }
             }
+            if gi == t0 + 1 {
+                if tk_kind(t0) == 1 {
+                    sv10 i32 = sym_find(t0)
+                    if sv10 >= 0 {
+                        if sym_code(sv10) == 12 {
+                            if sym_dims(sv10) == 0 {
+                                if sym_pt(sv10) < 20 {
+                                    emsg("cannot access a member of the generic 'void' pointer")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             ec(46)
             adv()
             etk(gi)
@@ -1312,9 +1411,20 @@ func expr_postfix() {
         }
         if is_p("->") == 1 {
             tc2 i32 = 0
-            if tk_kind(t0) == 1 {
-                si6 i32 = sym_find(t0)
-                if si6 >= 0 { tc2 = sym_pt(si6) }
+            if gi == t0 + 1 {
+                if tk_kind(t0) == 1 {
+                    si6 i32 = sym_find(t0)
+                    if si6 >= 0 {
+                        tc2 = sym_pt(si6)
+                        if sym_code(si6) == 12 {
+                            if sym_dims(si6) == 0 {
+                                if tc2 < 20 {
+                                    emsg("cannot access a member of the generic 'void' pointer")
+                                }
+                            }
+                        }
+                    }
+                }
             }
             if tc2 >= 20 {
                 n2 i32 = goutn - p0
@@ -1497,6 +1607,23 @@ func expr_primary() {
         if txt_eq(gi, "holdof") == 1 { emit_ownerof(2) return }
         if txt_eq(gi, "unionof") == 1 { emit_ownerof(3) return }
         if txt_eq(gi, "bitoffsetof") == 1 { emit_bitoff() return }
+        if ck() == 1 {
+            si8 i32 = sym_find(gi)
+            if si8 >= 0 {
+                st8 void = gstate
+                if st8.(i32[512])[si8] == 1 {
+                    tok_cstr(gi)
+                    print("错误: use of frozen pointer '%s'\n", gout)
+                    gerr = gerr + 1
+                    st8.(i32[512])[si8] = 0
+                } else if st8.(i32[512])[si8] == 2 {
+                    tok_cstr(gi)
+                    print("错误: use of invalidated pointer '%s'\n", gout)
+                    gerr = gerr + 1
+                    st8.(i32[512])[si8] = 0
+                }
+            }
+        }
         /* 编译期常量折叠 */
         ci i32 = ct_find(gi)
         if ci >= 0 {
@@ -1525,6 +1652,7 @@ func emit_ownerof(kind i32) {
     skip_nl()
     mt i32 = gi
     adv()
+    if mem_find(tc - 20, mt) < 0 { emsg("no member of that name in the aggregate type") }
     need_p(",")
     skip_nl()
     eo("(void*)((char*)(")
@@ -1784,8 +1912,7 @@ func emit_len() {
             }
             d i32 = sym_dims(si)
             c i32 = sym_code(si)
-            fv void = gdimv
-            if fv.(i32[512])[si] == 1 {
+            if d >= 100 {
                 eo("(int64_t)strlen(")
                 etk(gi)
                 eo(")")
@@ -1820,7 +1947,9 @@ func emit_len() {
         need_p(")")
         return
     }
-    eo("0")
+    tok_cstr(gi)
+    print("错误: len: logical length of '%s' is not statically known\n", gout)
+    gerr = gerr + 1
     while is_p(")") == 0 {
         if ck() == 8 { break }
         adv()
@@ -2266,17 +2395,31 @@ func emit_fnptr_decl(nameTok i32, retc i32, vis i32) {
 /* ================= 语句 ================= */
 
 func block() {
+    fr i32[64]
+    fn2 i32 = 0
     need_p("{")
     eo("{ ")
     skip_nl()
     while ck() != 8 {
         if is_p("}") == 1 {
             adv()
-            eo("}")
-            return
+            break
         }
         stmt()
         skip_nl()
+        if glastfrz >= 0 {
+            if fn2 < 64 {
+                fr[fn2] = glastfrz
+                fn2 = fn2 + 1
+            }
+            glastfrz = 0 - 1
+        }
+    }
+    ks i32 = 0
+    while ks < fn2 {
+        stf void = gstate
+        stf.(i32[512])[fr[ks]] = 0
+        ks = ks + 1
     }
     eo("}")
 }
@@ -2344,9 +2487,21 @@ func stmt() {
         }
     }
     if ck() == 1 {
-        if is_kw_at(gi + 1, "struct") == 1 { emit_type_def(1, 0) return }
-        if is_kw_at(gi + 1, "union") == 1 { emit_type_def(2, 0) return }
-        if is_kw_at(gi + 1, "enum") == 1 { emit_type_def(3, 0) return }
+        if is_kw_at(gi + 1, "struct") == 1 {
+            if gskipdefs == 1 { mk8 i32 = goutn emit_type_def(1, 0) goutn = mk8 return }
+            emit_type_def(1, 0)
+            return
+        }
+        if is_kw_at(gi + 1, "union") == 1 {
+            if gskipdefs == 1 { mk8b i32 = goutn emit_type_def(2, 0) goutn = mk8b return }
+            emit_type_def(2, 0)
+            return
+        }
+        if is_kw_at(gi + 1, "enum") == 1 {
+            if gskipdefs == 1 { mk8c i32 = goutn emit_type_def(3, 0) goutn = mk8c return }
+            emit_type_def(3, 0)
+            return
+        }
     }
 
     /* 标签 name: */
@@ -2361,6 +2516,52 @@ func stmt() {
             }
         }
     }
+
+    if ck() == 1 {
+        if sym_find(gi) >= 0 {
+            c0 i32 = sym_find(gi)
+            if sym_vis(c0) == 1 {
+                if stmt_is_store(gi) == 1 {
+                    tok_cstr(gi)
+                    if is_rebind(gi) == 1 {
+                        print("错误: cannot assign to the const '%s'\n", gout)
+                    } else {
+                        print("错误: cannot modify the const '%s'\n", gout)
+                    }
+                    gerr = gerr + 1
+                    skip_line()
+                    return
+                }
+            }
+        }
+    }
+    if ck() == 1 {
+        if tk_kind(gi + 1) == 6 {
+            if txt_eq(gi + 1, "(") == 1 {
+                if tk_kind(gi + 2) == 1 {
+                    if tk_kind(gi + 3) == 6 {
+                        if txt_eq(gi + 3, ")") == 1 {
+                            pv9 i32 = fn_param_vis(gi, 0)
+                            av9 i32 = 0
+                            sv13 i32 = sym_find(gi + 2)
+                            if sv13 >= 0 { av9 = sym_vis(sv13) }
+                            if pv9 > 0 {
+                                if av9 == 1 {
+                                if vis_ok(av9, pv9) == 0 {
+                                    tok_cstr(gi + 2)
+                                    print("错误: argument %s (visibility %s): target lifetime shorter than source\n", gout, vis_name(av9))
+                                    gerr = gerr + 1
+                                }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if is_p("?=") == 1 { emsg("语法记号 '?=' 已移除，请用 '='") adv() skip_nl() return }
+    if is_p("?.") == 1 { emsg("语法记号 '?.' 已移除，请用 '.()'") adv() return }
 
     /* 声明 or 表达式语句 */
     ds i32 = decl_start(gi)
@@ -2381,9 +2582,7 @@ func stmt() {
                     if tk_kind(nx) == 4 {
                         eo("char* ")
                         etk(nt)
-                        si5 i32 = sym_add(nt, 10, 0, 0, vis)
-                        dv4 void = gdimv
-                        dv4.(i32[512])[si5] = 1
+                        si5 i32 = sym_add(nt, 10, 100, 0, vis)
                         espace() ec(61) espace()
                         etk(nx)
                         eo(";")
@@ -2553,6 +2752,48 @@ func skip_braces() {
     }
 }
 
+/* 该语句是否对 gi 处的变量做写操作（= / op= / ++ / --，深度 0） */
+/* 直接重绑定（名字后紧跟 = / op= / ++ / --），而不是写元素/成员 */
+func is_rebind(st i32) i32 {
+    j i32 = st + 1
+    if j >= gntk { return 1 }
+    if tk_kind(j) != 6 { return 1 }
+    if txt_eq(j, "=") == 1 { return 1 }
+    if txt_eq(j, "+=") == 1 { return 1 }
+    if txt_eq(j, "-=") == 1 { return 1 }
+    if txt_eq(j, "*=") == 1 { return 1 }
+    if txt_eq(j, "/=") == 1 { return 1 }
+    if txt_eq(j, "%=") == 1 { return 1 }
+    return 0
+}
+
+func stmt_is_store(st i32) i32 {
+    j i32 = st + 1
+    depth i32 = 0
+    while j < gntk {
+        k i32 = tk_kind(j)
+        if k == 7 { return 0 }
+        if k == 8 { return 0 }
+        if k == 6 {
+            if txt_eq(j, "(") == 1 { depth = depth + 1 }
+            else if txt_eq(j, "[") == 1 { depth = depth + 1 }
+            else if txt_eq(j, ")") == 1 { depth = depth - 1 }
+            else if txt_eq(j, "]") == 1 { depth = depth - 1 }
+            else if txt_eq(j, "++") == 1 { if depth <= 0 { return 1 } }
+            else if txt_eq(j, "--") == 1 { if depth <= 0 { return 1 } }
+            else if txt_eq(j, ";") == 1 { if depth <= 0 { return 0 } }
+            else if txt_eq(j, "=") == 1 { if depth <= 0 { return 1 } }
+            else if txt_eq(j, "+=") == 1 { if depth <= 0 { return 1 } }
+            else if txt_eq(j, "-=") == 1 { if depth <= 0 { return 1 } }
+            else if txt_eq(j, "*=") == 1 { if depth <= 0 { return 1 } }
+            else if txt_eq(j, "/=") == 1 { if depth <= 0 { return 1 } }
+            else if txt_eq(j, "%=") == 1 { if depth <= 0 { return 1 } }
+        }
+        j = j + 1
+    }
+    return 0
+}
+
 func skip_parens() {
     depth i32 = 0
     while ck() != 8 {
@@ -2634,7 +2875,7 @@ func emit_do() {
     need_p(")")
     skip_nl()
     a void = gisn
-    a.(i32[64])[gloop] = isv
+    a.(i32[64])[gloop] = 0 - 1
     gloop = gloop + 1
     block()
     gloop = gloop - 1
@@ -2814,6 +3055,11 @@ func emit_is(prev i32) {
     a void = gisn
     iv i32 = 0
     if gloop > 0 { iv = a.(i32[64])[gloop - 1] }
+    if iv <= 0 {
+        emsg("'is' pattern match only valid inside while loop body")
+        skip_braces()
+        return
+    }
     if prev == 1 { eo("else ") }
     eo("if (__is")
     enum_i(iv)
@@ -2842,9 +3088,9 @@ func emit_is(prev i32) {
     if is_p("-") == 1 { neg1 = 1 adv() }
     else if is_p("+") == 1 { adv() }
     if ck() != 2 {
-        eo(" == 0) ")
+        emsg("bad 'is' pattern (expected an integer literal)")
         skip_nl()
-        block()
+        skip_braces()
         return
     }
     inum i32 = gi
@@ -2861,7 +3107,17 @@ func emit_is(prev i32) {
         enum_i(iv)
         eo(" <= ")
         if neg2 == 1 { ec(45) }
-        if ck() == 2 { etk(gi) adv() } else { eo("0") }
+        if ck() == 2 {
+            hi1 i32 = tok_int(gi)
+            lo1 i32 = tok_int(inum)
+            if neg1 == 1 { lo1 = 0 - lo1 }
+            if neg2 == 1 { hi1 = 0 - hi1 }
+            if lo1 > hi1 { emsg("empty 'is' range (lower bound greater than upper)") }
+            etk(gi)
+            adv()
+        } else {
+            emsg("invalid 'is' range: expected an integer upper bound")
+        }
         eo(") ")
     } else {
         eo(" == ")
@@ -2876,6 +3132,145 @@ func emit_is(prev i32) {
 /* ================= 顶层 ================= */
 
 /* 从 RHS 首个 token 推断「指针指向类型」 */
+/* 可见性/所有权转移矩阵：4=var 1=const 2=flow 3=static 0=undef */
+func vis_ok(src i32, dst i32) i32 {
+    if src == 0 { return 1 }
+    if dst == 0 { return 1 }
+    if src == dst { return 1 }
+    if dst == 1 { return 1 }
+    if src == 2 {
+        if dst == 4 { return 1 }
+        return 0
+    }
+    if src == 4 {
+        if dst == 4 { return 1 }
+        return 0
+    }
+    if src == 3 {
+        if dst == 3 { return 1 }
+        return 0
+    }
+    return 0
+}
+
+func vis_name(v i32) string {
+    if v == 1 { return "const" }
+    if v == 2 { return "flow" }
+    if v == 3 { return "static" }
+    return "var"
+}
+
+/* 扫描函数定义的返回可见性（无前缀 → 0） */
+func fn_ret_vis(nt i32) i32 {
+    j i32 = 0
+    while j < gntk {
+        if tk_kind(j) == 1 {
+            if txt_eq(j, "func") == 1 {
+                if j + 1 < gntk {
+                    if tok_eq(j + 1, nt) == 1 {
+                        k i32 = j + 2
+                        depth i32 = 0
+                        while k < gntk {
+                            if tk_kind(k) == 6 {
+                                if txt_eq(k, "(") == 1 { depth = depth + 1 }
+                                if txt_eq(k, ")") == 1 {
+                                    depth = depth - 1
+                                    if depth <= 0 { k = k + 1 break }
+                                }
+                            }
+                            k = k + 1
+                        }
+                        if k < gntk {
+                            if tk_kind(k) == 1 {
+                                if txt_eq(k, "const") == 1 { return 1 }
+                                if txt_eq(k, "flow") == 1 { return 2 }
+                                if txt_eq(k, "static") == 1 { return 3 }
+                                if txt_eq(k, "var") == 1 { return 4 }
+                            }
+                        }
+                        return 0
+                    }
+                }
+            }
+        }
+        j = j + 1
+    }
+    return 0
+}
+
+/* 扫描函数第 ar 个参数的可见性 */
+func fn_param_vis(nt i32, ar i32) i32 {
+    j i32 = 0
+    while j < gntk {
+        if tk_kind(j) == 1 {
+            if txt_eq(j, "func") == 1 {
+                if j + 1 < gntk {
+                    if tok_eq(j + 1, nt) == 1 {
+                        k i32 = j + 3
+                        idx i32 = 0
+                        while k < gntk {
+                            if tk_kind(k) == 6 {
+                                if txt_eq(k, ")") == 1 { return 0 }
+                                k = k + 1
+                                continue
+                            }
+                            if tk_kind(k) == 1 {
+                                if txt_eq(k, "const") == 1 { if idx == ar { return 1 } k = k + 1 continue }
+                                if txt_eq(k, "flow") == 1 { if idx == ar { return 2 } k = k + 1 continue }
+                                if txt_eq(k, "static") == 1 { if idx == ar { return 3 } k = k + 1 continue }
+                                if txt_eq(k, "var") == 1 { if idx == ar { return 4 } k = k + 1 continue }
+                                idx = idx + 1
+                            }
+                            k = k + 1
+                        }
+                    }
+                }
+            }
+        }
+        j = j + 1
+    }
+    return 0
+}
+
+func first_cap(st i32, en i32) i32 {
+    k i32 = st
+    while k < en {
+        if tk_kind(k) == 6 {
+            if txt_eq(k, "[") == 1 {
+                v i32 = tok_int(k + 1)
+                if v > 0 { return v }
+                return 8
+            }
+        }
+        k = k + 1
+    }
+    return 8
+}
+
+func malloc_bytes(i i32) i32 {
+    /* i 指向 malloc；解析 malloc(T[N]...) → 字节数 */
+    j i32 = i + 2
+    c i32 = 0
+    if j < gntk { c = code_of(j) }
+    if c == 0 { c = 4 }
+    j = j + 1
+    cnt i32 = 1
+    while j < gntk {
+        if tk_kind(j) == 6 {
+            if txt_eq(j, "]") == 1 { j = j + 1 continue }
+            if txt_eq(j, ")") == 1 { break }
+            if txt_eq(j, "[") == 1 {
+                v i32 = tok_int(j + 1)
+                if v > 0 { cnt = cnt * v }
+                j = j + 1
+                continue
+            }
+        }
+        j = j + 1
+    }
+    return cnt * size_of_code(c)
+}
+
 func infer_pt_at(i i32) i32 {
     if tk_kind(i) == 6 {
         if txt_eq(i, "&") == 1 {
@@ -3010,6 +3405,15 @@ func emit_slice_assign() {
     if ck() == 4 {
         gseq = gseq + 1
         n i32 = tk_ln(gi) - 1
+        hiv i32 = tok_int(gsafter - 2)
+        lov i32 = 0
+        if gslls >= 0 { lov = tok_int(gslls) }
+        if hiv >= lov {
+            if n > hiv - lov + 1 {
+                print("错误: string needs %d bytes with terminator, slice holds %d\n", n, hiv - lov + 1)
+                gerr = gerr + 1
+            }
+        }
         eo("{ const char* __sl")
         enum_i(gseq)
         eo(" = ")
@@ -3290,6 +3694,8 @@ func emit_nd_defaults(agg i32, level i32) {
 }
 
 func emit_decl(vis i32) {
+    pend_src i32 = -1
+    pend_st i32 = 0
     nt i32 = gi
     adv()
     skip_nl()
@@ -3322,13 +3728,18 @@ func emit_decl(vis i32) {
     }
     si i32 = sym_add(nt, c, d, 0, vis)
     if fe == 1 {
-        fv2 void = gdimv
-        fv2.(i32[512])[si] = 1
+        if c == 10 { gdims_set(si, 100 + d) }
     }
     if c == 12 {
         if is_p("=") == 1 {
             ptv i32 = infer_pt_at(gi + 1)
             if ptv > 0 { sym_set_pt(si, ptv) }
+            if tk_kind(gi + 1) == 1 {
+                if txt_eq(gi + 1, "malloc") == 1 {
+                    sc9 void = gslice
+                    sc9.(i32[512])[si] = malloc_bytes(gi + 1)
+                }
+            }
         }
     }
 
@@ -3374,6 +3785,56 @@ func emit_decl(vis i32) {
         skip_nl()
         /* 顶层非常量初值（malloc/create 等调用）：C 文件作用域不允许，
          * 挪进 __nihao_init()，main 开头调用 */
+        if ck() == 1 {
+            if tk_kind(gi + 1) == 6 {
+                if txt_eq(gi + 1, "(") == 1 {
+                    rv9 i32 = fn_ret_vis(gi)
+                    if rv9 == 1 {
+                        if vis_ok(1, vis) == 0 {
+                            print("错误: cannot assign %s() return (visibility const): target lifetime shorter than source\n", gout)
+                            gerr = gerr + 1
+                        }
+                    }
+                    if rv9 == 2 {
+                        if vis_ok(2, vis) == 0 {
+                            print("错误: cannot assign %s() return (visibility flow): target lifetime shorter than source\n", gout)
+                            gerr = gerr + 1
+                        }
+                    }
+                    if rv9 == 3 {
+                        if vis_ok(3, vis) == 0 {
+                            print("错误: cannot assign %s() return (visibility static): target lifetime shorter than source\n", gout)
+                            gerr = gerr + 1
+                        }
+                    }
+                }
+            }
+            if tk_kind(gi + 1) != 6 {
+                sv12 i32 = sym_find(gi)
+                if sv12 >= 0 {
+                    if vis_ok(sym_vis(sv12), vis) == 0 {
+                        tok_cstr(gi)
+                        print("错误: cannot assign %s (visibility %s) to a %s target\n", gout, vis_name(sym_vis(sv12)), vis_name(vis))
+                        gerr = gerr + 1
+                    }
+                    if sym_vis(sv12) == 2 {
+                        st9 void = gstate
+                        if vis == 4 {
+                            pend_src = sv12
+                            pend_st = 1
+                            glastfrz = sv12
+                        } else if vis == 2 {
+                            if st9.(i32[512])[sv12] == 1 {
+                                emsg("cannot transfer ownership of a frozen pointer")
+                            } else {
+                                pend_src = sv12
+                                pend_st = 2
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if gtop == 1 {
             if ck() == 1 {
                 if tk_kind(gi + 1) == 6 {
@@ -3465,6 +3926,21 @@ func emit_decl(vis i32) {
                 ec(125)
             }
         } else if ck() == 4 {
+            if d > 0 {
+                if c != 10 {
+                    tok_cstr(nt)
+                    print("错误: cannot initialize array '%s' with a string literal\n", gout)
+                    gerr = gerr + 1
+                } else {
+                    cap1 i32 = first_cap(dstart, dend)
+                    need1 i32 = tk_ln(gi) - 1
+                    if need1 > cap1 {
+                        tok_cstr(nt)
+                        print("错误: string needs %d bytes with terminator, array '%s' holds %d\n", need1, gout, cap1)
+                        gerr = gerr + 1
+                    }
+                }
+            }
             etk(gi)
             adv()
         } else {
@@ -3482,6 +3958,9 @@ func emit_decl(vis i32) {
                 ec(125)
             } else {
                 collect_dims(dstart, dend)
+                if dims_product(dstart, dend) * agg_mcount(c - 20) > 1024 {
+                    emsg("aggregate array is too large to expand its member defaults")
+                }
                 if gdn >= 2 {
                     emit_nd_defaults(c - 20, 0)
                 } else {
@@ -3499,6 +3978,10 @@ func emit_decl(vis i32) {
         }
         else if d > 0 { espace() ec(61) espace() ec(123) ec(48) ec(125) }
         else { espace() ec(61) espace() ec(48) }
+    }
+    if pend_src >= 0 {
+        sv14 void = gstate
+        sv14.(i32[512])[pend_src] = pend_st
     }
     eo(";")
 }
@@ -3535,14 +4018,11 @@ func emit_multi_decl(vis i32) {
     need_p("{")
     skip_nl()
     gmdn = 0
-    nm void = gmdname
-    ss void = gmds
-    ee void = gmde
     while ck() != 8 {
         skip_nl()
         if is_p("}") == 1 { break }
         if ck() != 1 { adv() continue }
-        if gmdn < 16 { nm.(i32[16])[gmdn] = gi }
+        ntk i32 = gi
         adv()
         st i32 = gi
         en i32 = gi
@@ -3569,8 +4049,7 @@ func emit_multi_decl(vis i32) {
             en = gi
         }
         if gmdn < 16 {
-            ss.(i32[16])[gmdn] = st
-            ee.(i32[16])[gmdn] = en
+            gmd_set(gmdn, ntk, st, en)
             gmdn = gmdn + 1
         }
         if is_p(",") == 1 { adv() }
@@ -3587,7 +4066,7 @@ func emit_multi_decl(vis i32) {
     fe i32 = first_dim_empty(dstart, dend)
     k i32 = 0
     while k < gmdn {
-        nt i32 = nm.(i32[16])[k]
+        nt i32 = gmd_name(k)
         if vis == 1 { eo("const ") }
         if c == 10 {
             if d > 0 {
@@ -3624,16 +4103,36 @@ func emit_multi_decl(vis i32) {
         si4 i32 = sym_add(nt, c, d, 0, vis)
         if c == 10 {
             if d > 0 {
-                if fe == 1 {
-                    dv3 void = gdimv
-                    dv3.(i32[512])[si4] = 1
-                }
+                if fe == 1 { gdims_set(si4, 100 + d) }
             }
         }
-        if ss.(i32[16])[k] != ee.(i32[16])[k] {
+        if d > 0 {
+            if c == 10 {
+                if gmd_s(k) < gmd_e(k) {
+                    if tk_kind(gmd_s(k)) != 4 {
+                        tok_cstr(nt)
+                        print("错误: '%s' has fixed array type but no string literal initializer\n", gout)
+                        gerr = gerr + 1
+                    } else {
+                        cap2 i32 = first_cap(dstart, dend)
+                        need2 i32 = tk_ln(gmd_s(k)) - 1
+                        if need2 > cap2 {
+                            tok_cstr(nt)
+                            print("错误: string needs %d bytes with terminator, array '%s' holds %d\n", need2, gout, cap2)
+                            gerr = gerr + 1
+                        }
+                    }
+                }
+            } else {
+                tok_cstr(nt)
+                print("错误: '%s' has fixed array type but no string literal initializer\n", gout)
+                gerr = gerr + 1
+            }
+        }
+        if gmd_s(k) != gmd_e(k) {
             espace() ec(61) espace()
-            p2 i32 = ss.(i32[16])[k]
-            while p2 < ee.(i32[16])[k] {
+            p2 i32 = gmd_s(k)
+            while p2 < gmd_e(k) {
                 etk(p2)
                 ec(32)
                 p2 = p2 + 1
@@ -3724,8 +4223,10 @@ func emit_type_def(kind i32, inbody i32) {
             }
             de2 = gi
         }
-        mem_add(id, midx, mt, c, (d > 0 || c == 11) ? 1 : 0, ds2, de2)
-        mem_set_bit(gmc - 1, bw)
+        if gskipdefs == 0 {
+            mem_add(id, midx, mt, c, (d > 0 || c == 11) ? 1 : 0, ds2, de2)
+            mem_set_bit(gmc - 1, bw)
+        }
         midx = midx + 1
         eo("; ")
         skip_nl()
@@ -3737,6 +4238,7 @@ func emit_type_def(kind i32, inbody i32) {
 
 /* 函数定义：func name(params) [vis] ret { body } */
 func emit_func(haskw i32) {
+    sav_gn i32 = gn
     rvis0 i32 = 0
     if haskw == 0 {
         if gretvis == 1 { rvis0 = 1 }
@@ -3830,11 +4332,9 @@ func emit_func(haskw i32) {
     ec(41)
     espace()
     gret = rcode
-    gn = 0  /* 参数表之外的作用域简化：函数内重新登记 */
-    /* 重新登记参数（供函数体引用） */
-    /* 简化：函数体内引用参数时依赖 C 名字，不做类型跟踪 */
     skip_nl()
     if txt_eq(nt, "main") == 1 { block_main() } else { block() }
+    gn = sav_gn
     eol()
 }
 
@@ -3855,6 +4355,38 @@ func pre_aggs() {
     gi = save
 }
 
+/* 第一遍：所有类型定义（Name struct/union/enum、alias）先出到最前面 */
+func emit_typedefs() {
+    save i32 = gi
+    gi = 0
+    while ck() != 8 {
+        if ck() == 1 {
+            ni9 i32 = gi + 1
+            if is_kw_at(ni9, "struct") == 1 { emit_type_def(1, 0) continue }
+            if is_kw_at(ni9, "union") == 1 { emit_type_def(2, 0) continue }
+            if is_kw_at(ni9, "enum") == 1 { emit_type_def(3, 0) continue }
+            if txt_eq(gi, "alias") == 1 {
+                adv()
+                skip_nl()
+                nt9 i32 = gi
+                adv()
+                if is_p("=") == 1 { adv() }
+                cc9 i32 = code_of(gi)
+                if cc9 == 0 { cc9 = 4 }
+                adv()
+                eo("typedef ")
+                ctype(cc9)
+                espace()
+                etk(nt9)
+                eo("; ")
+                continue
+            }
+        }
+        adv()
+    }
+    gi = save
+}
+
 func emit_protos() {
     save i32 = gi
     gi = 0
@@ -3867,16 +4399,62 @@ func emit_protos() {
                 nt i32 = gi
                 adv()
                 skip_nl()
+                /* 参数类型（C 原型） */
+                mark i32 = goutn
                 if is_p("(") == 1 {
                     depth i32 = 1
                     adv()
-                    while depth > 0 {
-                        if ck() == 8 { break }
-                        if is_p("(") == 1 { depth = depth + 1 }
-                        if is_p(")") == 1 { depth = depth - 1 }
+                    first i32 = 1
+                    while depth > 0 && ck() != 8 {
+                        if is_p("(") == 1 { depth = depth + 1 adv() continue }
+                        if is_p(")") == 1 {
+                            depth = depth - 1
+                            adv()
+                            continue
+                        }
+                        if depth == 1 {
+                            if is_kw("const") == 1 { adv() continue }
+                            if is_kw("flow") == 1 { adv() continue }
+                            if is_kw("static") == 1 { adv() continue }
+                            if is_kw("var") == 1 { adv() continue }
+                            if ck() == 1 {
+                                pc i32 = code_of(gi)
+                                if pc > 0 {
+                                    adv()
+                                } else {
+                                    adv()
+                                    skip_nl()
+                                    pc = code_of(gi)
+                                    if pc == 0 { pc = 4 }
+                                    adv()
+                                }
+                                pd i32 = skip_dims()
+                                if first == 0 { eo(", ") }
+                                first = 0
+                                if pc == 12 { eo("void*") }
+                                else if pc == 11 { eo("char*") }
+                                else if pc == 10 {
+                                    if pd > 0 { eo("char*") } else { eo("char") }
+                                } else {
+                                    ctype(pc)
+                                }
+                                if is_p(",") == 1 { adv() }
+                                continue
+                            }
+                        }
                         adv()
                     }
                 }
+                nargs i32 = goutn - mark
+                tmp i32 = 510000
+                o void = gout
+                kz i32 = 0
+                while kz < nargs {
+                    o.(i8[524288])[tmp + kz] = o.(i8[524288])[mark + kz]
+                    kz = kz + 1
+                }
+                goutn = mark
+                /* 返回类型 */
                 skip_nl()
                 rv i32 = 0
                 if is_kw("const") == 1 { rv = 1 adv() }
@@ -3886,13 +4464,20 @@ func emit_protos() {
                 rc i32 = code_of(gi)
                 if rc > 0 { adv() }
                 if rc == 0 { rc = 12 }
+                /* 先写返回类型 + 名字，再回放参数类型 */
                 if txt_eq(nt, "main") == 1 { eo("int ") }
-                else if rc == 12 {
-                    if rv > 0 { eo("void* ") } else { eo("void ") }
-                } else if rc == 11 { eo("char* ") }
+                else if rc == 12 { if rv > 0 { eo("void* ") } else { eo("void ") } }
+                else if rc == 11 { eo("char* ") }
+                else if rc == 10 { eo("char ") }
                 else { ctype(rc) espace() }
                 etk(nt)
-                eo("();")
+                ec(40)
+                kz = 0
+                while kz < nargs {
+                    ec(o.(i8[524288])[tmp + kz])
+                    kz = kz + 1
+                }
+                eo("); ")
             }
         } else {
             adv()
@@ -3959,6 +4544,9 @@ func use_module() {
     save_tk i64 = gtk
     save_ntk i32 = gntk
     save_gi i32 = gi
+    save_gn i32 = gn
+    save_nt2 i32 = gnt
+    save_mc i32 = gmc
     gsrc = gmsrc
     gtk = gmtk
     gntk = 0
@@ -3975,6 +4563,9 @@ func use_module() {
     gtk = save_tk
     gntk = save_ntk
     gi = save_gi
+    gn = save_gn
+    gnt = save_nt2
+    gmc = save_mc
 }
 
 func top() {
@@ -3983,7 +4574,7 @@ func top() {
     if is_kw("module") == 1 { skip_line() return }
     if is_kw("use") == 1 { use_module() return }
     if is_kw("link") == 1 { skip_line() return }
-    if is_kw("linkas") == 1 { skip_line() return }
+    if is_kw("linkas") == 1 { emsg("linkas 尚未实现（静态库导出命名）") skip_line() return }
     if is_kw("import") == 1 { skip_line() return }
     if is_kw("cooking") == 1 { cooking_block() return }
     if is_kw("static_assert") == 1 { adv() skip_parens() return }
@@ -4015,9 +4606,21 @@ func top() {
     /* 顶层类型定义 Name struct/union/enum */
     if ck() == 1 {
         ni i32 = gi + 1
-        if is_kw_at(ni, "struct") == 1 { emit_type_def(1, 0) return }
-        if is_kw_at(ni, "union") == 1 { emit_type_def(2, 0) return }
-        if is_kw_at(ni, "enum") == 1 { emit_type_def(3, 0) return }
+        if is_kw_at(ni, "struct") == 1 {
+            if gskipdefs == 1 { mk7 i32 = goutn emit_type_def(1, 0) goutn = mk7 return }
+            emit_type_def(1, 0)
+            return
+        }
+        if is_kw_at(ni, "union") == 1 {
+            if gskipdefs == 1 { mk7b i32 = goutn emit_type_def(2, 0) goutn = mk7b return }
+            emit_type_def(2, 0)
+            return
+        }
+        if is_kw_at(ni, "enum") == 1 {
+            if gskipdefs == 1 { mk7c i32 = goutn emit_type_def(3, 0) goutn = mk7c return }
+            emit_type_def(3, 0)
+            return
+        }
     }
     /* 顶层变量 */
     vis i32 = 4
@@ -4057,7 +4660,34 @@ func skip_line() {
     }
 }
 
+func attr_known(i i32) i32 {
+    if txt_eq(i, "export") == 1 { return 1 }
+    if txt_eq(i, "inline") == 1 { return 1 }
+    if txt_eq(i, "local") == 1 { return 1 }
+    if txt_eq(i, "weak") == 1 { return 1 }
+    if txt_eq(i, "used") == 1 { return 1 }
+    if txt_eq(i, "unused") == 1 { return 1 }
+    return 0
+}
+
 func skip_attr() {
+    /* 取属性名做白名单校验：[[nope]] → unknown bracket attribute 'nope' */
+    pk i32 = gi
+    while tk_kind(pk) != 8 {
+        if tk_kind(pk) == 6 {
+            if txt_eq(pk, "[") == 1 { pk = pk + 1 continue }
+            if txt_eq(pk, "]") == 1 { break }
+        }
+        if tk_kind(pk) == 1 {
+            if attr_known(pk) == 0 {
+                tok_cstr(pk)
+                print("错误: unknown bracket attribute '%s'\n", gout)
+                gerr = gerr + 1
+            }
+            break
+        }
+        pk = pk + 1
+    }
     depth i32 = 0
     while ck() != 8 {
         if is_p("[") == 1 { depth = depth + 1 }
@@ -4094,7 +4724,6 @@ func main() {
     gnames = malloc(i32[512])
     gtypes = malloc(i32[512])
     gdims = malloc(i32[512])
-    gdimv = malloc(i32[512])
     gpt = malloc(i32[512])
     gvis = malloc(i32[512])
     gtn = malloc(i32[128])
@@ -4119,9 +4748,9 @@ func main() {
     giname = malloc(i32[64])
     gis = malloc(i32[64])
     gie = malloc(i32[64])
-    gmdname = malloc(i32[16])
-    gmds = malloc(i32[16])
-    gmde = malloc(i32[16])
+    gmd = malloc(i32[48])
+    gstate = malloc(i32[512])
+    glastfrz = 0 - 1
 
     inp void = getenv("BOOT_IN")
     if inp == 0 {
@@ -4149,6 +4778,12 @@ func main() {
     gi = 0
     eo("#include <stdio.h>\n#include <stdint.h>\n#include <stddef.h>\n#include <stdlib.h>\n#include <string.h>\n\n")
     eo("static void __nihao_init(void);\n\n")
+    pre_aggs()
+    emit_typedefs()
+    eo("\n")
+    emit_protos()
+    eo("\n")
+    gskipdefs = 1
 
     while ck() != 8 {
         top()
@@ -4174,6 +4809,11 @@ func main() {
         k9 = k9 + 1
     }
     eo("}\n")
+
+    if gerr > 0 {
+        print("错误: 共 %d 处诊断，未生成输出\n", gerr)
+        return 1
+    }
 
     outp void = getenv("BOOT_OUT")
     if outp == 0 {

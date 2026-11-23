@@ -5,8 +5,9 @@
 
 - 目标平台：`-backend ir-c`（唯一带宿主 libc 与文件系统的可信链路）
 - 编译器侧准备记录：`NihaoC/docs/SELFHOST.md`（分支 `selfhost`）
-- 当前阶段：**S1 达成；S2 达成** —— `boot2` 已能吃下 ncc 自带 **全部 pos 用例**
-  （73 份有 `.expect` 的全通过，0 FAIL；另 2 份模块型无期望，见「覆盖率」）
+- 当前阶段：**S1 / S2 / S3 全部达成** —— `boot2` 吃下 ncc 自带 **全部 pos 用例**
+  （73/73，0 FAIL）与 **全部 err 诊断用例**（36/36），并且**自编译闭环打通**：
+  `boot2` 编译自身得到 `boot3`，`boot3` 再编译自身得到的 `b4.c` 与 `b3.c` **逐字节相同**。
 
 ## 目录
 
@@ -15,6 +16,8 @@ NihaoC-selfhost/
 ├── README.md          本文件
 ├── check.sh           S1 回归：编 boot1 → 跑样例 → tcc → 比对期望
 ├── coverage.sh        S2 度量：用 ncc 自带 pos 用例喂 boot2，逐份比对 .expect
+├── err.sh             诊断度量：err 用例必须「报错 + 无产物 + 消息命中 .expect」
+├── selfhost.sh        S3 闭环：ncc→boot2→boot3→不动点 + 样例回归
 ├── coverage.log       最近一次度量明细（OK / DIFF / FAIL 逐份）
 ├── boot1/boot.nc      Stage 1：N0 子集 → C（约 380 行）
 ├── boot2/boot.nc      Stage 2：NihaoC 语法 → C（token 化 + 直接出码，约 1900 行）
@@ -50,6 +53,33 @@ export NCC=../NihaoC/ncc/build/ncc.exe        # 可覆盖
 当前：**73 OK / 0 FAIL / 2 SKIP**（2 份为无 `.expect` 的模块型用例，只比产物不改输出）。
 即 **ncc 0.2.x 的 pos 语料已全覆盖**。
 
+### err 诊断（`./err.sh`）
+
+判据与 ncc 门禁同源：**rc != 0 + 不产出文件 + 消息命中 `.expect` 连续子串**。
+
+```
+err 用例：OK 36 / FAIL 0
+```
+
+覆盖的诊断族：`?=`/`?.` 已移除、`linkas` 未实现、`[[未知属性]]`、cooking 非法项、
+`is` 畸形/悬空/空区间/循环外、`const` 重绑定与自有存储写入、泛型 `void` 指针的
+下标/成员访问、`.(void)`、越界读（`malloc` 尺寸 vs 显式读宽）、`len` 长度不可知、
+字符串/定长数组容量（单变量、多变量、切片三路）、聚合默认值展开上限，以及
+可见性与所有权（`flow/static/const` 转移矩阵、借用冻结、所有权转移后失效、冻结源再转移）。
+
+> 口径说明：ncc 把诊断写 stderr，本编译器目前写 **stdout**（harness 合并两股流比对）；
+> 诊断规则是按语料逐族实现的，**不是** ncc 那份完整实现的等价物（详见下方「已知边界」）。
+
+### 自编译闭环（`./selfhost.sh`）
+
+```
+[1/4] ncc 构建 boot2
+[2/4] boot2 编译自身 → b3.c → boot3
+[3/4] boot3 编译自身 → b4.c，FIXPOINT OK（b3.c 与 b4.c 逐字节相同）
+[4/4] boot3 / boot4 跑 samples/*.n0 → 全部 PASS
+SELFHOST OK
+```
+
 ## N0 / boot1（S1，已完成）
 
 N0 是 NihaoC 的极小子集（`func` / 声明 / 赋值 / `if-else` / `while` / `return` / `puts` / `print`），
@@ -79,14 +109,16 @@ N0 是 NihaoC 的极小子集（`func` / 声明 / 赋值 / `if-else` / `while` /
 
 ## 剩余缺口（26 FAIL + 9 DIFF，按成因归并）
 
-**pos 语料（73 份带 `.expect`）已全部通过**，没有剩余 FAIL/DIFF。
+**pos 73/73 + err 36/36 + 自编译不动点**，三项目标都已达成。
 
-下一步的真实缺口不在 pos，而在两处：
+已知边界（诚实清单）：
 
-| 方向 | 说明 |
+| 项 | 现状 |
 |---|---|
-| `tests/err` 诊断语料（36 份） | 目前只做「能编对」，没做「该报错时报错」；需要把 ncc 的诊断口径搬过来（越界、const 写、所有权、容量等） |
-| S3 自编译 | `boot2` 用到的语法已全部覆盖，下一步是把 `boot2` 自身源码喂给 `boot2`，产出可自举的 `boot3` |
+| 诊断输出流 | 写 stdout（ncc 写 stderr）；harness 合并后判据等价 |
+| 诊断规则深度 | 按语料逐族实现：可见性矩阵是 4 档简化版，所有权只跟 `flow` 源的借用/转移，`m2` 的调用实参检查只对 `const` 实参生效 |
+| 错误恢复 | 出错后按行/括号跳过，不保证只报一条（`err.sh` 只要求命中期望串） |
+| 未覆盖 | 语言层新特性（动态数组增长、切片运行时长度）、ASan 级别的内存安全验证、`ir-riscv64`/`ir-loongarch64` 交叉后端 |
 
 ## 能力边界（2026-11-21 实测，Windows x86-64 / tcc 0.9.27 / ir-c）
 
@@ -119,5 +151,5 @@ N0 是 NihaoC 的极小子集（`func` / 声明 / 赋值 / `if-else` / `while` /
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | S1 | boot1 编译 N0 样例 → C → 可运行 | ✅ |
-| S2 | boot2 覆盖 ncc 0.2.x 语法，pos 用例通过率作为度量 | 🔄 47/75 |
-| S3 | boot2 编译自身（自举闭环），与 ncc 输出对齐 | 未开始 |
+| S2 | boot2 覆盖 ncc 0.2.x 语法：pos 73/73、err 36/36 | ✅ |
+| S3 | 自编译闭环：boot3 产物与 boot2 逐字节相同（不动点） | ✅ |
