@@ -17,3 +17,7 @@ d_*.c
 d_*.out
 x_*.c
 x_*.out
+m_*.c
+m_*.out
+n_*.c
+n_*.out
