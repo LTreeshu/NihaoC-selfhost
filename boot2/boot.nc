@@ -108,14 +108,15 @@ func sch(i i32) i32 {
     s void = gsrc
     if i < 0 { return 0 }
     if i >= gsrcn { return 0 }
-    return s.(i8[131072])[i]
+    return s.(i8[524288])[i]
 }
 
 func put_tok(kind i32, st i32, ln i32) {
+    if gntk * 3 + 2 >= 1048576 { return }
     t void = gtk
-    t.(i32[262144])[gntk * 3] = kind
-    t.(i32[262144])[gntk * 3 + 1] = st
-    t.(i32[262144])[gntk * 3 + 2] = ln
+    t.(i32[1048576])[gntk * 3] = kind
+    t.(i32[1048576])[gntk * 3 + 1] = st
+    t.(i32[1048576])[gntk * 3 + 2] = ln
     gntk = gntk + 1
 }
 
@@ -282,17 +283,17 @@ func tk_kind(i i32) i32 {
     t void = gtk
     if i < 0 { return 8 }
     if i >= gntk { return 8 }
-    return t.(i32[262144])[i * 3]
+    return t.(i32[1048576])[i * 3]
 }
 
 func tk_st(i i32) i32 {
     t void = gtk
-    return t.(i32[262144])[i * 3 + 1]
+    return t.(i32[1048576])[i * 3 + 1]
 }
 
 func tk_ln(i i32) i32 {
     t void = gtk
-    return t.(i32[262144])[i * 3 + 2]
+    return t.(i32[1048576])[i * 3 + 2]
 }
 
 func ck() i32 {
@@ -2584,7 +2585,9 @@ func stmt() {
                         etk(nt)
                         si5 i32 = sym_add(nt, 10, 100, 0, vis)
                         espace() ec(61) espace()
+                        if vis != 1 { eo("__nihao_strdup(") }
                         etk(nx)
+                        if vis != 1 { eo(")") }
                         eo(";")
                         gi = nx + 1
                         return
@@ -2808,6 +2811,10 @@ func skip_parens() {
     }
 }
 
+func eat_rparen() {
+    if is_p(")") == 1 { adv() }
+}
+
 func emit_if() {
     eo("if")
     espace()
@@ -2816,6 +2823,7 @@ func emit_if() {
     need_p("(")
     ec(40)
     expr_assign()
+    eat_rparen()
     ec(41)
     espace()
     skip_nl()
@@ -2844,6 +2852,7 @@ func emit_while() {
     enum_i(isv)
     eo(" = (")
     expr_assign()
+    eat_rparen()
     eo("); if (!__is")
     enum_i(isv)
     eo(") break; ")
@@ -3926,7 +3935,12 @@ func emit_decl(vis i32) {
                 ec(125)
             }
         } else if ck() == 4 {
-            if d > 0 {
+            if ((c == 11) || (c == 10 && d > 0 && fe == 1)) {
+                if vis != 1 { eo("__nihao_strdup(") }
+                etk(gi)
+                adv()
+                if vis != 1 { eo(")") }
+            } else if d > 0 {
                 if c != 10 {
                     tok_cstr(nt)
                     print("错误: cannot initialize array '%s' with a string literal\n", gout)
@@ -4131,6 +4145,20 @@ func emit_multi_decl(vis i32) {
         }
         if gmd_s(k) != gmd_e(k) {
             espace() ec(61) espace()
+            if (c == 10) {
+                if (d > 0) {
+                    if (fe == 1) {
+                        if tk_kind(gmd_s(k)) == 4 {
+                            if vis != 1 { eo("__nihao_strdup(") }
+                            etk(gmd_s(k))
+                            if vis != 1 { eo(")") }
+                            eo("; ")
+                            k = k + 1
+                            continue
+                        }
+                    }
+                }
+            }
             p2 i32 = gmd_s(k)
             while p2 < gmd_e(k) {
                 etk(p2)
@@ -4550,7 +4578,7 @@ func use_module() {
     gsrc = gmsrc
     gtk = gmtk
     gntk = 0
-    gsrcn = fread(gmsrc, 1, 131071, f)
+    gsrcn = fread(gmsrc, 1, 524287, f)
     fclose(f)
     lex()
     gi = 0
@@ -4718,8 +4746,8 @@ func etk_dbg(i i32) {
 }
 
 func main() {
-    gsrc = malloc(i8[131072])
-    gtk = malloc(i32[262144])
+    gsrc = malloc(i8[524288])
+    gtk = malloc(i32[1048576])
     gout = malloc(i8[524288])
     gnames = malloc(i32[512])
     gtypes = malloc(i32[512])
@@ -4738,8 +4766,8 @@ func main() {
     gmdef2 = malloc(i32[512])
     gsel = malloc(i32[64])
     gdl = malloc(i32[16])
-    gmsrc = malloc(i8[131072])
-    gmtk = malloc(i32[262144])
+    gmsrc = malloc(i8[524288])
+    gmtk = malloc(i32[1048576])
     gctname = malloc(i32[128])
     gct = malloc(i32[1024])
     gpenv = malloc(i32[16])
@@ -4761,7 +4789,7 @@ func main() {
         puts("boot2: cannot open input")
         return
     }
-    gsrcn = fread(gsrc, 1, 131071, f)
+    gsrcn = fread(gsrc, 1, 524287, f)
     fclose(f)
 
     lex()
@@ -4777,6 +4805,7 @@ func main() {
     gntk = gntk
     gi = 0
     eo("#include <stdio.h>\n#include <stdint.h>\n#include <stddef.h>\n#include <stdlib.h>\n#include <string.h>\n\n")
+    eo("static char* __nihao_strdup(const char* s) { size_t n = strlen(s) + 1; char* p = (char*)malloc(n); if (p != 0) memcpy(p, s, n); return p; }\n")
     eo("static void __nihao_init(void);\n\n")
     pre_aggs()
     emit_typedefs()

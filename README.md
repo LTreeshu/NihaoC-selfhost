@@ -17,7 +17,8 @@ NihaoC-selfhost/
 ├── check.sh           S1 回归：编 boot1 → 跑样例 → tcc → 比对期望
 ├── coverage.sh        S2 度量：用 ncc 自带 pos 用例喂 boot2，逐份比对 .expect
 ├── err.sh             诊断度量：err 用例必须「报错 + 无产物 + 消息命中 .expect」
-├── selfhost.sh        S3 闭环：ncc→boot2→boot3→不动点 + 样例回归
+├── selfhost.sh        S3 闭环：ncc→boot2→boot3→不动点 + 样例 + boot3 全语料
+├── asan.sh            内存安全：boot2/boot3 与产物程序全部过 ASan
 ├── coverage.log       最近一次 pos 度量明细（boot2）
 ├── err.log            最近一次 err 度量明细（boot2）
 ├── coverage-boot3.log boot3（自举产物）的 pos 明细
@@ -86,6 +87,30 @@ SELFHOST OK
 
 第 5 步是**自举产物的等价性验收**：`boot3` 是 boot2 编译出来的编译器，它跑同一套语料
 同样拿到 **pos 73/73、err 36/36**（明细在 `coverage-boot3.log` / `err-boot3.log`）。
+
+### 内存安全（`./asan.sh`）
+
+tcc 不支持 ASan，故用 clang 18 + `-fsanitize=address` 重建 `boot2.exe.c` / `b3.c`：
+
+| 对象 | 规模 | 结果 |
+|---|---|---|
+| `boot2_asan`（编译器本体） | 跑 pos+err 共 111 份输入 | **0 条 ASan 报告** |
+| `boot3_asan`（自举产物） | 跑 pos+err 共 111 份输入 | **0 条 ASan 报告** |
+| 产物程序（pos 生成 C 用 ASan 重编） | 72 份可执行 | **0 条 ASan 报告** |
+
+3 份 SKIP 是模块型/无 `main` 用例（`mathmod` / `module_top_forms` / `use_mod`），clang 链接期无入口，与内存安全无关。
+
+**泄漏**：本平台 clang 的 LeakSanitizer **不支持 Windows**（实测 `detect_leaks is not supported on this platform`），
+故泄漏未测；且编译器按设计不 `free`（NihaoC 语言层没有 auto-free），泄漏是已知边界，不在“内存安全”判据内。
+
+这轮 ASan 与自编译各揪出一个真 bug：
+
+1. **字符串字面量被直接写入**（`ir_str` 产物在 `.rdata` 上写 → ASan 报错）：已按 ncc PB-89 语义改成
+   声明处 `__nihao_strdup()` 可写副本（`const` 仍绑只读池）。
+2. **自编译源码被截断**：`boot2` 自身源码涨到 136 KB，超过它读入缓冲的 128 KB，导致 `b3.c` 里 `main`
+   尾部（输出写盘、诊断收尾）整段丢失；已把源缓冲提到 512 KB、token 数组提到 1M 个 i32，并给
+   `put_tok` 加溢出保护。
+3. 附带修掉 `if (cond)` 的右括号未消费（曾让产物里出现 `0;` 与 `else;`，自编译时才暴露）。
 
 ## N0 / boot1（S1，已完成）
 
