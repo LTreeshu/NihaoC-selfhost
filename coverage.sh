@@ -26,7 +26,7 @@ for src in "$NCC_TESTS"/pos/*.nc; do
     expect="$NCC_TESTS/pos/$name.expect"
     [ -f "$expect" ] || { skip=$((skip+1)); echo "SKIP  $name (no .expect)" >> coverage.log; continue; }
 
-    if ! BOOT_IN="$src" BOOT_OUT="$TMP/cov_$name.c" timeout 5 "$BOOT" > "$TMP/cov_$name.gen" 2>&1; then
+    if ! BOOT_IN="$src" BOOT_INC="$NCC_TESTS/pos" BOOT_OUT="$TMP/cov_$name.c" timeout 5 "$BOOT" > "$TMP/cov_$name.gen" 2>&1; then
         fail=$((fail+1)); echo "FAIL  $name (boot2 崩溃/异常)" >> coverage.log; continue
     fi
     if ! timeout 10 "$TCC" "$TMP/cov_$name.c" -o "$TMP/cov_$name.exe" > "$TMP/cov_$name.tcc" 2>&1; then

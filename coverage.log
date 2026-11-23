@@ -1,10 +1,10 @@
-DIFF  alignof_builtin
+OK    alignof_builtin
 OK    array_capacity_1d
 OK    array_capacity_tiers
 OK    array_member_default
 OK    borrow
 OK    bracket_attrs
-FAIL  cooking_ct_func (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_cooking_ct_func.c:12: error: 'SIDE' undeclared 
+OK    cooking_ct_func
 OK    decl_no_init
 OK    deref_slice
 OK    designator_init
@@ -13,15 +13,15 @@ OK    flow
 OK    flow_move
 OK    flow_no_free
 OK    for_init_forms
-FAIL  fx_types (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_fx_types.c:8: error: cannot cast from/to void 
+OK    fx_types
 OK    goto_forms
 OK    hello
 OK    ir_array
 OK    ir_arrow
 OK    ir_bitfield
-DIFF  ir_builtin
+OK    ir_builtin
 OK    ir_conv
-FAIL  ir_cook (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_ir_cook.c:12: error: 'BASE' undeclared 
+OK    ir_cook
 OK    ir_demo
 OK    ir_dynarr
 OK    ir_expr
@@ -36,9 +36,9 @@ OK    ir_multi
 OK    ir_narray
 OK    ir_narrow
 OK    ir_nested
-DIFF  ir_prefix
+OK    ir_prefix
 OK    ir_ptr
-FAIL  ir_ptr2 (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_ir_ptr2.c:8: error: 'q' undeclared 
+OK    ir_ptr2
 OK    ir_slice
 OK    ir_sparam
 OK    ir_str
@@ -46,8 +46,8 @@ OK    ir_struct
 OK    ir_switch
 OK    ir_trunc
 OK    ir_vis
-DIFF  is_no_fallthrough
-FAIL  is_pattern_forms (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_is_pattern_forms.c:10: error: 'func' undeclared 
+OK    is_no_fallthrough
+OK    is_pattern_forms
 OK    is_vis_patterns
 OK    len_builtin
 OK    literal_forms
@@ -57,8 +57,8 @@ SKIP  mathmod (no .expect)
 SKIP  module_top_forms (no .expect)
 OK    multi_arr_decl
 OK    nested_agg_value
-FAIL  ownerof (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_ownerof.c:12: warning: implicit declaration of function 'structof' C:/Users/LSG/AppData/Local/Temp/cov_ownerof.c:12: error: 'name' undeclared 
-DIFF  p0_case
+OK    ownerof
+OK    p0_case
 OK    p0_link
 OK    param_prefix
 OK    pattern
@@ -69,7 +69,7 @@ OK    stmt_terminators
 OK    str_array_init
 OK    struct_member_default
 OK    struct_param_prefix
-FAIL  transfer (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_transfer.c:9: error: initializer element is not constant 
+OK    transfer
 OK    type_forms
-FAIL  use_mod (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_use_mod.c:9: warning: implicit declaration of function 'add' tcc: error: undefined symbol 'add' 
-FAIL  void_slot_infer (tcc 编译失败): C:/Users/LSG/AppData/Local/Temp/cov_void_slot_infer.c:10: error: struct or union expected 
+OK    use_mod
+OK    void_slot_infer

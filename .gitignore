@@ -21,3 +21,16 @@ m_*.c
 m_*.out
 n_*.c
 n_*.out
+
+# 单测中间产物
+c_*.c
+c_*.out
+r_*.c
+r_*.out
+s_*.c
+s_*.out
+u.c
+u.out
+q.c
+q.out
+t_*.nc

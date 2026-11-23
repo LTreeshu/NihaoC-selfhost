@@ -57,6 +57,16 @@ var gmarray i64
 var gmdef i64
 var gdl i64
 var gdn i32
+var gmbit i64
+var gretvis i32
+var gmsrc i64
+var gmtk i64
+var gtop i32
+var ginitn i32
+var giname i64
+var gis i64
+var gie i64
+var glastis i32
 var gfirst i32
 var gslice i64
 var gmdef2 i64
@@ -502,6 +512,8 @@ func code_of(i i32) i32 {
     if txt_eq(i, "string") == 1 { return 11 }
     if txt_eq(i, "void") == 1 { return 12 }
     if txt_eq(i, "bool") == 1 { return 13 }
+    if txt_eq(i, "fx32") == 1 { return 3 }
+    if txt_eq(i, "fx64") == 1 { return 4 }
     /* 别名 */
     if txt_eq(i, "Byte") == 1 { return 5 }
     id i32 = agg_find(i)
@@ -556,6 +568,41 @@ func mem_add(agg i32, idx i32, nt i32, c i32, arr i32, ds i32, de i32) {
     gmc = gmc + 1
 }
 
+/* 成员尺寸/对齐：数组标记的成员按指针（char[]）或 8 字节槽处理 */
+func mem_size(slot i32) i32 {
+    ar void = gmarray
+    cc void = gmcode
+    c i32 = cc.(i32[512])[slot]
+    if ar.(i32[512])[slot] == 1 {
+        if c == 10 { return 8 }
+        if c == 11 { return 8 }
+        return 8
+    }
+    return size_of_code(c)
+}
+
+func mem_align(slot i32) i32 {
+    ar void = gmarray
+    cc void = gmcode
+    c i32 = cc.(i32[512])[slot]
+    if ar.(i32[512])[slot] == 1 {
+        if c == 10 { return 8 }
+        return align_of(c)
+    }
+    return align_of(c)
+}
+
+func mem_set_bit(slot i32, w i32) {
+    a void = gmbit
+    if slot >= 0 { if slot < 512 { a.(i32[512])[slot] = w } }
+}
+
+func mem_bit(slot i32) i32 {
+    a void = gmbit
+    if slot < 0 { return 0 }
+    return a.(i32[512])[slot]
+}
+
 func mem_find(agg i32, nt i32) i32 {
     a void = gmagg
     n void = gmname
@@ -569,7 +616,467 @@ func mem_find(agg i32, nt i32) i32 {
     return -1
 }
 
-/* ================= 表达式 ================= */
+/* ================= 编译期（cooking） ================= */
+
+var gctn i32
+var gctname i64
+var gct i64
+var gcp i32
+var gcls i32
+var gcle i32
+var genvn i32
+var gpenv i64
+
+func ct_find(nt i32) i32 {
+    a void = gctname
+    k i32 = 0
+    while k < gctn {
+        if tok_eq(a.(i32[128])[k], nt) == 1 { return k }
+        k = k - 0 + 1
+    }
+    return -1
+}
+
+func ct_get(i i32, f i32) i32 {
+    a void = gct
+    return a.(i32[1024])[i * 8 + f]
+}
+
+func ct_put(i i32, f i32, v i32) {
+    a void = gct
+    a.(i32[1024])[i * 8 + f] = v
+}
+
+func ct_add_const(nt i32, v i32) {
+    a void = gctname
+    if gctn >= 128 { return }
+    a.(i32[128])[gctn] = nt
+    ct_put(gctn, 0, v)
+    ct_put(gctn, 1, 0)
+    gctn = gctn + 1
+}
+
+func ct_add_macro(nt i32, ar i32, p1 i32, p2 i32, p3 i32, bs i32, be i32) {
+    a void = gctname
+    if gctn >= 128 { return }
+    a.(i32[128])[gctn] = nt
+    ct_put(gctn, 0, 0)
+    ct_put(gctn, 1, ar)
+    ct_put(gctn, 2, p1)
+    ct_put(gctn, 3, p2)
+    ct_put(gctn, 4, p3)
+    ct_put(gctn, 5, bs)
+    ct_put(gctn, 6, be)
+    gctn = gctn + 1
+}
+
+func env_find(nt i32) i32 {
+    a void = gpenv
+    k i32 = genvn - 1
+    while k >= 0 {
+        if tok_eq(a.(i32[16])[k * 2], nt) == 1 { return k }
+        k = k - 1
+    }
+    return -1
+}
+
+func env_name(k i32) i32 {
+    a void = gpenv
+    return a.(i32[16])[k * 2]
+}
+
+func env_val(k i32) i32 {
+    a void = gpenv
+    return a.(i32[16])[k * 2 + 1]
+}
+
+func env_set(k i32, nm i32, v i32) {
+    a void = gpenv
+    a.(i32[16])[k * 2] = nm
+    a.(i32[16])[k * 2 + 1] = v
+}
+
+/* 数字 token → 值（十进制 / 0x） */
+func tok_num(i i32) i32 {
+    n i32 = tk_ln(i)
+    st i32 = tk_st(i)
+    v i32 = 0
+    k i32 = 0
+    if n > 2 {
+        if sch(st) == 48 {
+            c1 i32 = sch(st + 1)
+            if c1 == 120 {
+                k = 2
+                while k < n {
+                    d i32 = sch(st + k)
+                    dv i32 = 0
+                    if d >= 48 { if d <= 57 { dv = d - 48 } }
+                    if d >= 97 { if d <= 102 { dv = d - 87 } }
+                    if d >= 65 { if d <= 70 { dv = d - 55 } }
+                    v = v * 16 + dv
+                    k = k + 1
+                }
+                return v
+            }
+        }
+    }
+    while k < n {
+        c i32 = sch(st + k)
+        if c < 48 { return v }
+        if c > 57 { return v }
+        v = v * 10 + (c - 48)
+        k = k + 1
+    }
+    return v
+}
+
+func ct_peek() i32 {
+    if gcp >= gcle { return 8 }
+    return tk_kind(gcp)
+}
+
+func ct_is(s void) i32 {
+    if gcp >= gcle { return 0 }
+    if tk_kind(gcp) != 6 { return 0 }
+    return txt_eq(gcp, s)
+}
+
+func ct_num(i i32) i32 {
+    if i < 0 { return 0 - i }
+    return i
+}
+
+func ct_expr() i32 {
+    return ct_or()
+}
+
+func ct_or() i32 {
+    v i32 = ct_and()
+    while ct_is("||") == 1 {
+        gcp = gcp + 1
+        w i32 = ct_and()
+        if v != 0 { v = 1 } else { v = w }
+    }
+    return v
+}
+
+func ct_and() i32 {
+    v i32 = ct_eq()
+    while ct_is("&&") == 1 {
+        gcp = gcp + 1
+        w i32 = ct_eq()
+        if v == 0 { v = 0 } else { v = w }
+    }
+    return v
+}
+
+func ct_eq() i32 {
+    v i32 = ct_rel()
+    while 1 == 1 {
+        if ct_is("==") == 1 {
+            gcp = gcp + 1
+            w i32 = ct_rel()
+            if v == w { v = 1 } else { v = 0 }
+        } else if ct_is("!=") == 1 {
+            gcp = gcp + 1
+            w i32 = ct_rel()
+            if v != w { v = 1 } else { v = 0 }
+        } else {
+            return v
+        }
+    }
+    return v
+}
+
+func ct_rel() i32 {
+    v i32 = ct_add()
+    while 1 == 1 {
+        if ct_is("<") == 1 {
+            gcp = gcp + 1
+            w i32 = ct_add()
+            if v < w { v = 1 } else { v = 0 }
+        } else if ct_is(">") == 1 {
+            gcp = gcp + 1
+            w i32 = ct_add()
+            if v > w { v = 1 } else { v = 0 }
+        } else if ct_is("<=") == 1 {
+            gcp = gcp + 1
+            w i32 = ct_add()
+            if v <= w { v = 1 } else { v = 0 }
+        } else if ct_is(">=") == 1 {
+            gcp = gcp + 1
+            w i32 = ct_add()
+            if v >= w { v = 1 } else { v = 0 }
+        } else {
+            return v
+        }
+    }
+    return v
+}
+
+func ct_add() i32 {
+    v i32 = ct_mul()
+    while 1 == 1 {
+        if ct_is("+") == 1 {
+            gcp = gcp + 1
+            v = v + ct_mul()
+        } else if ct_is("-") == 1 {
+            gcp = gcp + 1
+            v = v - ct_mul()
+        } else {
+            return v
+        }
+    }
+    return v
+}
+
+func ct_mul() i32 {
+    v i32 = ct_unary()
+    while 1 == 1 {
+        if ct_is("*") == 1 {
+            gcp = gcp + 1
+            v = v * ct_unary()
+        } else if ct_is("/") == 1 {
+            gcp = gcp + 1
+            d i32 = ct_unary()
+            if d != 0 { v = v / d }
+        } else if ct_is("%") == 1 {
+            gcp = gcp + 1
+            d2 i32 = ct_unary()
+            if d2 != 0 { v = v % d2 }
+        } else {
+            return v
+        }
+    }
+    return v
+}
+
+func ct_unary() i32 {
+    if ct_is("-") == 1 {
+        gcp = gcp + 1
+        return 0 - ct_unary()
+    }
+    if ct_is("!") == 1 {
+        gcp = gcp + 1
+        v i32 = ct_unary()
+        if v == 0 { return 1 }
+        return 0
+    }
+    if ct_is("+") == 1 {
+        gcp = gcp + 1
+        return ct_unary()
+    }
+    return ct_primary()
+}
+
+func ct_primary() i32 {
+    if gcp >= gcle { return 0 }
+    k i32 = tk_kind(gcp)
+    if k == 2 {
+        v i32 = tok_num(gcp)
+        gcp = gcp + 1
+        return v
+    }
+    if k == 6 {
+        if ct_is("(") == 1 {
+            gcp = gcp + 1
+            v2 i32 = ct_expr()
+            if ct_is(")") == 1 { gcp = gcp + 1 }
+            return v2
+        }
+        gcp = gcp + 1
+        return 0
+    }
+    if k == 1 {
+        if txt_eq(gcp, "true") == 1 { gcp = gcp + 1 return 1 }
+        if txt_eq(gcp, "false") == 1 { gcp = gcp + 1 return 0 }
+        if txt_eq(gcp, "sizeof") == 1 {
+            gcp = gcp + 1
+            if ct_is("(") == 1 { gcp = gcp + 1 }
+            c i32 = 0
+            if gcp < gcle { c = code_of(gcp) }
+            if c == 0 { c = 4 }
+            gcp = gcp + 1
+            while gcp < gcle {
+                if ct_is("]") == 1 { gcp = gcp + 1 }
+                else { if ct_is("[") == 1 { gcp = gcp + 1 } else { gcp = gcp + 1 } }
+            }
+            if c >= 20 { return agg_mcount(c - 20) * 8 }
+            return size_of_code(c)
+        }
+        /* 形参 or 编译期常量 or 宏调用 */
+        e1 i32 = env_find(gcp)
+        if e1 >= 0 {
+            v3 i32 = env_val(e1)
+            gcp = gcp + 1
+            return v3
+        }
+        mi i32 = ct_find(gcp)
+        if mi >= 0 {
+            nt i32 = gcp
+            gcp = gcp + 1
+            if ct_is("(") == 1 {
+                return ct_call(mi)
+            }
+            return ct_get(mi, 0)
+        }
+        gcp = gcp + 1
+        return 0
+    }
+    gcp = gcp + 1
+    return 0
+}
+
+/* 宏式编译期函数：求实参 → 绑定形参 → 求值函数体 */
+func ct_call(mi i32) i32 {
+    gcp = gcp + 1
+    av i32 = 0
+    a1 i32 = 0
+    a2 i32 = 0
+    a3 i32 = 0
+    if ct_is(")") == 0 {
+        a1 = ct_expr()
+        av = 1
+        if ct_is(",") == 1 {
+            gcp = gcp + 1
+            a2 = ct_expr()
+            av = 2
+            if ct_is(",") == 1 {
+                gcp = gcp + 1
+                a3 = ct_expr()
+                av = 3
+            }
+        }
+    }
+    if ct_is(")") == 1 { gcp = gcp + 1 }
+    save_n i32 = genvn
+    save_cp i32 = gcp
+    save_ls i32 = gcls
+    save_le i32 = gcle
+    if a1 != 0 { env_set(genvn, ct_get(mi, 2), a1) genvn = genvn + 1 }
+    if av >= 2 { env_set(genvn, ct_get(mi, 3), a2) genvn = genvn + 1 }
+    if av >= 3 { env_set(genvn, ct_get(mi, 4), a3) genvn = genvn + 1 }
+    gcp = ct_get(mi, 5)
+    gcls = ct_get(mi, 5)
+    gcle = ct_get(mi, 6)
+    v i32 = ct_expr()
+    genvn = save_n
+    gcp = save_cp
+    gcls = save_ls
+    gcle = save_le
+    return v
+}
+
+func ct_eval(st i32, en i32) i32 {
+    save i32 = gcp
+    sl i32 = gcls
+    se i32 = gcle
+    gcp = st
+    gcls = st
+    gcle = en
+    v i32 = ct_expr()
+    gcp = save
+    gcls = sl
+    gcle = se
+    return v
+}
+
+/* cooking { ... }：const 变量 / const 宏 / static_assert */
+func cooking_block() {
+    adv()
+    need_p("{")
+    skip_nl()
+    while ck() != 8 {
+        if is_p("}") == 1 { adv() return }
+        skip_nl()
+        if is_kw("const") == 1 {
+            adv()
+            skip_nl()
+            nt i32 = gi
+            adv()
+            if is_p("(") == 1 {
+                /* const NAME(p1,p2) = expr */
+                adv()
+                p1 i32 = -1
+                p2 i32 = -1
+                p3 i32 = -1
+                ar i32 = 0
+                while is_p(")") == 0 {
+                    if ck() == 1 {
+                        if ar == 0 { p1 = gi }
+                        if ar == 1 { p2 = gi }
+                        if ar == 2 { p3 = gi }
+                        ar = ar + 1
+                    }
+                    adv()
+                    if is_p(",") == 1 { adv() }
+                }
+                adv()
+                if is_p("=") == 1 { adv() }
+                bs i32 = gi
+                while ck() != 8 {
+                    if tk_kind(gi) == 7 { break }
+                    if is_p("}") == 1 { break }
+                    adv()
+                }
+                ct_add_macro(nt, ar, p1, p2, p3, bs, gi)
+            } else {
+                /* 可选类型名 */
+                if code_of(gi) > 0 { adv() }
+                if is_p("=") == 1 { adv() }
+                skip_nl()
+                bs2 i32 = gi
+                while ck() != 8 {
+                    if tk_kind(gi) == 7 { break }
+                    if is_p("}") == 1 { break }
+                    adv()
+                }
+                v i32 = ct_eval(bs2, gi)
+                ct_add_const(nt, v)
+            }
+        } else if is_kw("static_assert") == 1 {
+            adv()
+            need_p("(")
+            skip_nl()
+            bs3 i32 = gi
+            depth i32 = 0
+            while ck() != 8 {
+                if is_p("(") == 1 { depth = depth + 1 }
+                if is_p(")") == 1 {
+                    if depth == 0 { break }
+                    depth = depth - 1
+                }
+                if is_p(",") == 1 {
+                    if depth == 0 { break }
+                }
+                adv()
+            }
+            v2 i32 = ct_eval(bs3, gi)
+            if v2 == 0 { gerr = gerr + 1 }
+            /* 跳过消息与右括号 */
+            depth = 0
+            while ck() != 8 {
+                if is_p("(") == 1 { depth = depth + 1 }
+                if is_p(")") == 1 {
+                    depth = depth - 1
+                    adv()
+                    if depth < 0 { break }
+                    continue
+                }
+                adv()
+            }
+        } else {
+            while ck() != 8 {
+                if tk_kind(gi) == 7 { break }
+                if is_p("}") == 1 { break }
+                adv()
+            }
+        }
+        skip_nl()
+    }
+}
+
+/* ================= 表达式 ================= *//* ================= 表达式 ================= */
 
 func prec_of(i i32) i32 {
     if tk_kind(i) != 6 { return 0 }
@@ -636,6 +1143,18 @@ func expr_unary() {
     }
     if is_p("&") == 1 {
         ec(38)
+        adv()
+        expr_unary()
+        return
+    }
+    if is_p("++") == 1 {
+        eo("++")
+        adv()
+        expr_unary()
+        return
+    }
+    if is_p("--") == 1 {
+        eo("--")
         adv()
         expr_unary()
         return
@@ -708,9 +1227,14 @@ func expr_postfix() {
             }
             adv()
             skip_nl()
-            if is_p("]") == 1 {          /* p[] → (*p) */
+            if is_p("]") == 1 {          /* p[] → (*p)，按指向类型读 */
                 adv()
-                expr_wrap_deref(p0, 0)
+                tc3 i32 = 0
+                if tk_kind(t0) == 1 {
+                    si7 i32 = sym_find(t0)
+                    if si7 >= 0 { tc3 = sym_pt(si7) }
+                }
+                expr_wrap_deref(p0, tc3)
                 continue
             }
             ec(91)
@@ -787,6 +1311,31 @@ func expr_postfix() {
             continue
         }
         if is_p("->") == 1 {
+            tc2 i32 = 0
+            if tk_kind(t0) == 1 {
+                si6 i32 = sym_find(t0)
+                if si6 >= 0 { tc2 = sym_pt(si6) }
+            }
+            if tc2 >= 20 {
+                n2 i32 = goutn - p0
+                tmp2 i32 = 519000 - n2
+                o2 void = gout
+                k3 i32 = 0
+                while k3 < n2 {
+                    o2.(i8[524288])[tmp2 + k3] = o2.(i8[524288])[p0 + k3]
+                    k3 = k3 + 1
+                }
+                goutn = p0
+                eo("(((")
+                ctype(tc2)
+                eo("*)(")
+                k3 = 0
+                while k3 < n2 {
+                    ec(o2.(i8[524288])[tmp2 + k3])
+                    k3 = k3 + 1
+                }
+                eo(")))")
+            }
             ec(45)
             ec(62)
             adv()
@@ -938,17 +1487,67 @@ func expr_primary() {
         if txt_eq(gi, "_var") == 1 { eo("4") adv() return }
         if txt_eq(gi, "visof") == 1 { emit_visof() return }
         if txt_eq(gi, "sizeof") == 1 { emit_sizeof("sizeof") return }
-        if txt_eq(gi, "alignof") == 1 { emit_sizeof("alignof") return }
+        if txt_eq(gi, "alignof") == 1 { emit_alignof() return }
         if txt_eq(gi, "typeof") == 1 { emit_sizeof("sizeof") return }
         if txt_eq(gi, "offsetof") == 1 { emit_offsetof() return }
         if txt_eq(gi, "len") == 1 { emit_len() return }
         if txt_eq(gi, "malloc") == 1 { emit_malloc() return }
         if txt_eq(gi, "print") == 1 { emit_print() return }
+        if txt_eq(gi, "structof") == 1 { emit_ownerof(1) return }
+        if txt_eq(gi, "holdof") == 1 { emit_ownerof(2) return }
+        if txt_eq(gi, "unionof") == 1 { emit_ownerof(3) return }
+        if txt_eq(gi, "bitoffsetof") == 1 { emit_bitoff() return }
+        /* 编译期常量折叠 */
+        ci i32 = ct_find(gi)
+        if ci >= 0 {
+            if ct_get(ci, 1) == 0 {
+                enum_i(ct_get(ci, 0))
+                adv()
+                return
+            }
+        }
         /* 普通标识符 */
         etk(gi)
         adv()
         return
     }
+}
+
+/* structof/holdof/unionof(T, member, p) → 反推所属对象首地址 */
+func emit_ownerof(kind i32) {
+    adv()
+    need_p("(")
+    skip_nl()
+    tc i32 = code_of(gi)
+    if tc < 20 { tc = 20 }
+    adv()
+    need_p(",")
+    skip_nl()
+    mt i32 = gi
+    adv()
+    need_p(",")
+    skip_nl()
+    eo("(void*)((char*)(")
+    expr_assign()
+    eo(") - ")
+    enum_i(mem_off_of(tc - 20, mt))
+    eo(")")
+    need_p(")")
+}
+
+func emit_bitoff() {
+    adv()
+    need_p("(")
+    skip_nl()
+    tc i32 = code_of(gi)
+    if tc < 20 { tc = 20 }
+    adv()
+    need_p(",")
+    skip_nl()
+    mt i32 = gi
+    adv()
+    need_p(")")
+    enum_i(bit_off_of(tc - 20, mt))
 }
 
 func emit_visof() {
@@ -964,11 +1563,168 @@ func emit_visof() {
     enum_i(v)
 }
 
+func size_of_code(code i32) i32 {
+    if code == 1 { return 1 }
+    if code == 5 { return 1 }
+    if code == 10 { return 1 }
+    if code == 13 { return 1 }
+    if code == 2 { return 2 }
+    if code == 6 { return 2 }
+    if code == 3 { return 4 }
+    if code == 7 { return 4 }
+    if code == 8 { return 4 }
+    if code == 4 { return 8 }
+    if code == 9 { return 8 }
+    if code == 11 { return 8 }
+    if code == 12 { return 8 }
+    if code >= 20 { return agg_mcount(code - 20) * 8 }
+    return 8
+}
+
+func align_up(v i32, a i32) i32 {
+    if a <= 1 { return v }
+    r i32 = v % a
+    if r == 0 { return v }
+    return v + (a - r)
+}
+
+/* 成员位偏移（bit）：按 C 布局 + 同类型位域单元打包 */
+func bit_off_of(agg i32, nt i32) i32 {
+    a void = gmagg
+    nm void = gmname
+    cc void = gmcode
+    byte i32 = 0
+    unit i32 = 0
+    bitin i32 = 0
+    k i32 = 0
+    while k < gmc {
+        if a.(i32[512])[k] == agg {
+            c i32 = cc.(i32[512])[k]
+            sz i32 = mem_size(k)
+            al i32 = mem_align(k)
+            bw i32 = mem_bit(k)
+            if bw > 0 {
+                if unit == 0 {
+                    byte = align_up(byte, al)
+                    unit = sz
+                    bitin = 0
+                }
+                if bitin + bw > unit * 8 {
+                    byte = byte + unit
+                    byte = align_up(byte, al)
+                    unit = sz
+                    bitin = 0
+                }
+                if tok_eq(nm.(i32[512])[k], nt) == 1 { return byte * 8 + bitin }
+                bitin = bitin + bw
+                if bitin >= unit * 8 {
+                    byte = byte + unit
+                    unit = 0
+                    bitin = 0
+                }
+            } else {
+                unit = 0
+                bitin = 0
+                byte = align_up(byte, al)
+                if tok_eq(nm.(i32[512])[k], nt) == 1 { return byte * 8 }
+                byte = byte + sz
+            }
+        }
+        k = k + 1
+    }
+    return 0
+}
+
+func mem_off_of(agg i32, nt i32) i32 {
+    a void = gmagg
+    nm void = gmname
+    cc void = gmcode
+    byte i32 = 0
+    k i32 = 0
+    while k < gmc {
+        if a.(i32[512])[k] == agg {
+            c i32 = cc.(i32[512])[k]
+            sz i32 = mem_size(k)
+            al i32 = mem_align(k)
+            byte = align_up(byte, al)
+            if tok_eq(nm.(i32[512])[k], nt) == 1 { return byte }
+            byte = byte + sz
+        }
+        k = k + 1
+    }
+    return 0
+}
+
+func agg_mcount(agg i32) i32 {
+    a void = gmagg
+    n i32 = 0
+    k i32 = 0
+    while k < gmc {
+        if a.(i32[512])[k] == agg { n = n + 1 }
+        k = k + 1
+    }
+    return n
+}
+
+func align_of(code i32) i32 {
+    if code == 1 { return 1 }
+    if code == 5 { return 1 }
+    if code == 10 { return 1 }
+    if code == 13 { return 1 }
+    if code == 2 { return 2 }
+    if code == 6 { return 2 }
+    if code == 3 { return 4 }
+    if code == 7 { return 4 }
+    if code == 8 { return 4 }
+    if code == 4 { return 8 }
+    if code == 9 { return 8 }
+    if code == 11 { return 8 }
+    if code == 12 { return 8 }
+    if code >= 20 {
+        a void = gmagg
+        cc void = gmcode
+        k i32 = 0
+        mx i32 = 1
+        while k < gmc {
+            if a.(i32[512])[k] == code - 20 {
+                av i32 = align_of(cc.(i32[512])[k])
+                if av > mx { mx = av }
+            }
+            k = k + 1
+        }
+        return mx
+    }
+    return 8
+}
+
+func emit_alignof() {
+    adv()
+    need_p("(")
+    skip_nl()
+    c i32 = code_of(gi)
+    if c > 0 {
+        adv()
+        while is_p("[") == 1 { adv() if is_p("]") == 0 { adv() } need_p("]") }
+    } else {
+        c = 12
+    }
+    need_p(")")
+    enum_i(align_of(c))
+}
+
 func emit_sizeof(which i32) {
     adv()
     need_p("(")
     skip_nl()
     c i32 = code_of(gi)
+    if c >= 20 {
+        /* ncc 口径：聚合 sizeof = 顶层成员数 × 8（槽模型） */
+        adv()
+        while is_p("[") == 1 { adv() if is_p("]") == 0 { adv() } need_p("]") }
+        enum_i(agg_mcount(c - 20) * 8)
+        need_p(")")
+        return
+    }
     if c > 0 {
         eo("sizeof(")
         ctype(c)
@@ -1531,6 +2287,8 @@ func stmt() {
     if is_p("}") == 1 { return }
     if is_p(";") == 1 { adv() return }
     if is_p("{") == 1 { block() return }
+    prev_is i32 = glastis
+    glastis = 0
 
     vis i32 = 4
     hasv i32 = 0
@@ -1547,6 +2305,20 @@ func stmt() {
     if is_kw("break") == 1 { eo("break;") adv() return }
     if is_kw("continue") == 1 { eo("continue;") adv() return }
     if is_kw("return") == 1 { emit_return() return }
+    if is_p("++") == 1 {
+        eo("++")
+        adv()
+        expr_unary()
+        eo(";")
+        return
+    }
+    if is_p("--") == 1 {
+        eo("--")
+        adv()
+        expr_unary()
+        eo(";")
+        return
+    }
     if is_kw("goto") == 1 {
         eo("goto ")
         adv()
@@ -1556,8 +2328,7 @@ func stmt() {
         return
     }
     if is_kw("cooking") == 1 {
-        adv()
-        if is_p("{") == 1 { skip_braces() }
+        cooking_block()
         return
     }
     if is_kw("static_assert") == 1 {
@@ -1565,7 +2336,7 @@ func stmt() {
         skip_parens()
         return
     }
-    if is_kw("is") == 1 { emit_is() return }
+    if is_kw("is") == 1 { emit_is(prev_is) glastis = 1 return }
     if hasv == 1 {
         if is_p("{") == 1 {
             emit_multi_decl(vis)
@@ -1657,6 +2428,24 @@ func stmt() {
                         }
                         si3 i32 = sym_find(nx)
                         if si3 >= 0 {
+                            if sym_pt(si3) > 0 {
+                                if tk_kind(nx + 1) == 6 {
+                                    ptc i32 = sym_pt(si3)
+                                    if ptc == 12 {
+                                        eo("void* ")
+                                    } else {
+                                        ctype(ptc)
+                                        eo("*")
+                                    }
+                                    etk(nt)
+                                    sym_add(nt, 12, 0, ptc, vis)
+                                    espace() ec(61) espace()
+                                    gi = nx
+                                    expr_assign()
+                                    eo(";")
+                                    return
+                                }
+                            }
                             /* 切片：sl = arr[a..b] → 元素类型指针 */
                             if tk_kind(nx + 1) == 6 {
                                 if txt_eq(nx + 1, "[") == 1 {
@@ -1736,7 +2525,7 @@ func stmt() {
 
 func block_main() {
     need_p("{")
-    eo("{ ")
+    eo("{ __nihao_init(); ")
     skip_nl()
     while ck() != 8 {
         if is_p("}") == 1 {
@@ -2018,13 +2807,14 @@ func emit_return() {
     eo(";")
 }
 
-/* is 模式：is 5 { } / is 1..3 { } / is _ { } / is _const { } / is 标识符 { } */
-func emit_is() {
+/* is 模式：is 5 / is -3 / is +5 / is 1..3 / is -9..-5 / is _ / is _const / is <标识符> */
+func emit_is(prev i32) {
     adv()
     skip_nl()
     a void = gisn
     iv i32 = 0
     if gloop > 0 { iv = a.(i32[64])[gloop - 1] }
+    if prev == 1 { eo("else ") }
     eo("if (__is")
     enum_i(iv)
     if ck() == 1 {
@@ -2035,48 +2825,49 @@ func emit_is() {
             block()
             return
         }
-    }
-    if is_p("_") == 1 {
-        eo(" || 1) ")
-        adv()
-    } else if ck() == 2 {
-        stok i32 = gi
-        adv()
-        if is_p("..") == 1 {
-            adv()
-            eo(" >= ")
-            etk(stok)
-            eo(" && __is")
-            enum_i(iv)
-            eo(" <= ")
-            if ck() == 2 { etk(gi) adv() } else { eo("0") }
-        } else {
-            eo(" == ")
-            etk(stok)
-        }
+        if txt_eq(gi, "_const") == 1 { eo(" == 1) ") adv() skip_nl() block() return }
+        if txt_eq(gi, "_flow") == 1 { eo(" == 2) ") adv() skip_nl() block() return }
+        if txt_eq(gi, "_static") == 1 { eo(" == 3) ") adv() skip_nl() block() return }
+        if txt_eq(gi, "_var") == 1 { eo(" == 4) ") adv() skip_nl() block() return }
+        if txt_eq(gi, "_undef") == 1 { eo(" == 0) ") adv() skip_nl() block() return }
+        eo(" == ")
+        etk(gi)
         eo(") ")
-    } else if is_p("-") == 1 {
-        neg i32 = 1
         adv()
-        eo(" == -")
+        skip_nl()
+        block()
+        return
+    }
+    neg1 i32 = 0
+    if is_p("-") == 1 { neg1 = 1 adv() }
+    else if is_p("+") == 1 { adv() }
+    if ck() != 2 {
+        eo(" == 0) ")
+        skip_nl()
+        block()
+        return
+    }
+    inum i32 = gi
+    adv()
+    if is_p("..") == 1 {
+        adv()
+        neg2 i32 = 0
+        if is_p("-") == 1 { neg2 = 1 adv() }
+        else if is_p("+") == 1 { adv() }
+        eo(" >= ")
+        if neg1 == 1 { ec(45) }
+        etk(inum)
+        eo(" && __is")
+        enum_i(iv)
+        eo(" <= ")
+        if neg2 == 1 { ec(45) }
         if ck() == 2 { etk(gi) adv() } else { eo("0") }
         eo(") ")
-    } else if ck() == 1 {
-        /* 可见性枚举或标识符模式 */
-        if txt_eq(gi, "_const") == 1 { eo(" == 1) ") adv() }
-        else if txt_eq(gi, "_flow") == 1 { eo(" == 2) ") adv() }
-        else if txt_eq(gi, "_static") == 1 { eo(" == 3) ") adv() }
-        else if txt_eq(gi, "_var") == 1 { eo(" == 4) ") adv() }
-        else if txt_eq(gi, "_undef") == 1 { eo(" == 0) ") adv() }
-        else {
-            si i32 = sym_find(gi)
-            eo(" == ")
-            etk(gi)
-            eo(") ")
-            adv()
-        }
     } else {
-        eo(" == 0) ")
+        eo(" == ")
+        if neg1 == 1 { ec(45) }
+        etk(inum)
+        eo(") ")
     }
     skip_nl()
     block()
@@ -2581,6 +3372,39 @@ func emit_decl(vis i32) {
     if is_p("=") == 1 {
         adv()
         skip_nl()
+        /* 顶层非常量初值（malloc/create 等调用）：C 文件作用域不允许，
+         * 挪进 __nihao_init()，main 开头调用 */
+        if gtop == 1 {
+            if ck() == 1 {
+                if tk_kind(gi + 1) == 6 {
+                    if txt_eq(gi + 1, "(") == 1 {
+                        if ginitn < 64 {
+                            st8 i32 = gi
+                            depth8 i32 = 0
+                            while ck() != 8 {
+                                if is_p("(") == 1 { depth8 = depth8 + 1 }
+                                if is_p(")") == 1 { depth8 = depth8 - 1 }
+                                if depth8 <= 0 {
+                                    if tk_kind(gi) == 7 { break }
+                                    if is_p(";") == 1 { break }
+                                }
+                                adv()
+                            }
+                            a9 void = giname
+                            b9 void = gis
+                            c9 void = gie
+                            a9.(i32[64])[ginitn] = nt
+                            b9.(i32[64])[ginitn] = st8
+                            c9.(i32[64])[ginitn] = gi
+                            ginitn = ginitn + 1
+                        }
+                        espace() ec(61) espace() ec(48)
+                        eo(";")
+                        return
+                    }
+                }
+            }
+        }
         /* 切片读入声明数组：T x[N] = BASE[lo..hi] → memcpy */
         if d > 0 {
             if rhs_has_slice(gi) == 1 {
@@ -2878,9 +3702,11 @@ func emit_type_def(kind i32, inbody i32) {
         gi = dstart
         if fe == 0 { emit_dims_c(c) } else { skip_dims() }
         gi = dend
+        bw i32 = 0
         if is_p(":") == 1 {
             ec(58)
             adv()
+            bw = tok_int(gi)
             etk(gi)
             adv()
         }
@@ -2899,6 +3725,7 @@ func emit_type_def(kind i32, inbody i32) {
             de2 = gi
         }
         mem_add(id, midx, mt, c, (d > 0 || c == 11) ? 1 : 0, ds2, de2)
+        mem_set_bit(gmc - 1, bw)
         midx = midx + 1
         eo("; ")
         skip_nl()
@@ -2909,8 +3736,15 @@ func emit_type_def(kind i32, inbody i32) {
 }
 
 /* 函数定义：func name(params) [vis] ret { body } */
-func emit_func() {
-    adv()  /* func */
+func emit_func(haskw i32) {
+    rvis0 i32 = 0
+    if haskw == 0 {
+        if gretvis == 1 { rvis0 = 1 }
+        if gretvis == 2 { rvis0 = 2 }
+        if gretvis == 3 { rvis0 = 3 }
+    }
+    gretvis = 0
+    if haskw == 1 { adv()  /* func */ }
     skip_nl()
     if ck() != 1 { return }
     nt i32 = gi
@@ -2956,7 +3790,7 @@ func emit_func() {
     }
     /* 返回类型 */
     skip_nl()
-    rvis i32 = 0
+    rvis i32 = rvis0
     if is_p("{") == 0 {
         /* 可选可见性前缀：flow/const/static 的 void 返回表示指针 */
         if is_kw("const") == 1 { rvis = 1 adv() }
@@ -3067,15 +3901,91 @@ func emit_protos() {
     gi = save
 }
 
+/* use NAME[.NAME]：把模块源文件当作同一输出里的顶层声明内联（单层） */
+func use_module() {
+    adv()
+    /* 组路径：<BOOT_INC>/a/b.nc */
+    path char[256]
+    pi i32 = 0
+    inc void = getenv("BOOT_INC")
+    if inc != 0 {
+        k i32 = 0
+        while inc.(i8[256])[k] != 0 {
+            if pi < 240 {
+                path[pi] = inc.(i8[256])[k]
+                pi = pi + 1
+            }
+            k = k + 1
+        }
+        path[pi] = 47
+        pi = pi + 1
+    }
+    while ck() == 1 {
+        st i32 = tk_st(gi)
+        n i32 = tk_ln(gi)
+        k2 i32 = 0
+        while k2 < n {
+            if pi < 240 {
+                path[pi] = sch(st + k2)
+                pi = pi + 1
+            }
+            k2 = k2 + 1
+        }
+        adv()
+        if is_p(".") == 1 {
+            if pi < 240 {
+                path[pi] = 47
+                pi = pi + 1
+            }
+            adv()
+        } else {
+            break
+        }
+    }
+    if pi < 244 {
+        path[pi] = 46
+        path[pi + 1] = 110
+        path[pi + 2] = 99
+        path[pi + 3] = 0
+    }
+    f void = fopen(path, "r")
+    if f == 0 {
+        /* 找不到模块（如 stdio）：当作空导入 */
+        skip_line()
+        return
+    }
+    save_src i64 = gsrc
+    save_len i32 = gsrcn
+    save_tk i64 = gtk
+    save_ntk i32 = gntk
+    save_gi i32 = gi
+    gsrc = gmsrc
+    gtk = gmtk
+    gntk = 0
+    gsrcn = fread(gmsrc, 1, 131071, f)
+    fclose(f)
+    lex()
+    gi = 0
+    while ck() != 8 {
+        top()
+        eol()
+    }
+    gsrc = save_src
+    gsrcn = save_len
+    gtk = save_tk
+    gntk = save_ntk
+    gi = save_gi
+}
+
 func top() {
     skip_nl()
     if ck() == 8 { return }
     if is_kw("module") == 1 { skip_line() return }
-    if is_kw("use") == 1 { skip_line() return }
+    if is_kw("use") == 1 { use_module() return }
     if is_kw("link") == 1 { skip_line() return }
     if is_kw("linkas") == 1 { skip_line() return }
     if is_kw("import") == 1 { skip_line() return }
-    if is_kw("cooking") == 1 { adv() if is_p("{") == 1 { skip_braces() } return }
+    if is_kw("cooking") == 1 { cooking_block() return }
     if is_kw("static_assert") == 1 { adv() skip_parens() return }
     if is_p("[[") == 1 { skip_attr() return }
     if is_p("[") == 1 {
@@ -3101,7 +4011,7 @@ func top() {
         eo(";")
         return
     }
-    if is_kw("func") == 1 { emit_func() return }
+    if is_kw("func") == 1 { emit_func(1) return }
     /* 顶层类型定义 Name struct/union/enum */
     if ck() == 1 {
         ni i32 = gi + 1
@@ -3115,7 +4025,22 @@ func top() {
     else if is_kw("flow") == 1 { vis = 2 adv() }
     else if is_kw("static") == 1 { vis = 3 adv() }
     else if is_kw("var") == 1 { vis = 4 adv() }
-    if decl_start(gi) == 1 { emit_decl(vis) return }
+    /* 带可见性前缀的函数定义：flow create() void { ... } */
+    if ck() == 1 {
+        if tk_kind(gi + 1) == 6 {
+            if txt_eq(gi + 1, "(") == 1 {
+                gretvis = vis
+                emit_func(0)
+                return
+            }
+        }
+    }
+    if decl_start(gi) == 1 {
+        gtop = 1
+        emit_decl(vis)
+        gtop = 0
+        return
+    }
     /* 其他：跳一行 */
     skip_line()
 }
@@ -3184,7 +4109,16 @@ func main() {
     gmdef2 = malloc(i32[512])
     gsel = malloc(i32[64])
     gdl = malloc(i32[16])
+    gmsrc = malloc(i8[131072])
+    gmtk = malloc(i32[262144])
+    gctname = malloc(i32[128])
+    gct = malloc(i32[1024])
+    gpenv = malloc(i32[16])
+    gmbit = malloc(i32[512])
     gslice = malloc(i32[512])
+    giname = malloc(i32[64])
+    gis = malloc(i32[64])
+    gie = malloc(i32[64])
     gmdname = malloc(i32[16])
     gmds = malloc(i32[16])
     gmde = malloc(i32[16])
@@ -3214,11 +4148,32 @@ func main() {
     gntk = gntk
     gi = 0
     eo("#include <stdio.h>\n#include <stdint.h>\n#include <stddef.h>\n#include <stdlib.h>\n#include <string.h>\n\n")
+    eo("static void __nihao_init(void);\n\n")
 
     while ck() != 8 {
         top()
         eol()
     }
+
+    /* 全局初始化函数 */
+    eo("static void __nihao_init(void) { ")
+    k9 i32 = 0
+    while k9 < ginitn {
+        a10 void = giname
+        b10 void = gis
+        c10 void = gie
+        etk(a10.(i32[64])[k9])
+        espace() ec(61) espace()
+        p9 i32 = b10.(i32[64])[k9]
+        while p9 < c10.(i32[64])[k9] {
+            etk(p9)
+            ec(32)
+            p9 = p9 + 1
+        }
+        eo("; ")
+        k9 = k9 + 1
+    }
+    eo("}\n")
 
     outp void = getenv("BOOT_OUT")
     if outp == 0 {

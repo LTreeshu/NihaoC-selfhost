@@ -5,8 +5,8 @@
 
 - 目标平台：`-backend ir-c`（唯一带宿主 libc 与文件系统的可信链路）
 - 编译器侧准备记录：`NihaoC/docs/SELFHOST.md`（分支 `selfhost`）
-- 当前阶段：**S1 达成；S2 进行中** —— `boot2` 已能吃 ncc 自带 pos 用例并产出可运行 C，
-  实测 **55 / 75 份通过**（详见下方「覆盖率」）
+- 当前阶段：**S1 达成；S2 达成** —— `boot2` 已能吃下 ncc 自带 **全部 pos 用例**
+  （73 份有 `.expect` 的全通过，0 FAIL；另 2 份模块型无期望，见「覆盖率」）
 
 ## 目录
 
@@ -45,8 +45,10 @@ export NCC=../NihaoC/ncc/build/ncc.exe        # 可覆盖
 | 3 | 44 | 返回类型带 `flow/const/static` 的 `void` → `void*`；`len()` 多维；`sizeof(T[N])` |
 | 4 | 47 | `var {a=1,b=2} T` 多变量声明；`is _` 通配；`for (i32)` 括号类型 |
 | 5 | 55 | **切片**：`p.(T[N])` 数组指针、`p[]` 空下标解引用、切片左值 `a[lo..hi] = {…}` / `= "str"`、切片读入声明数组（memcpy）、`len(slice)`；**成员默认值**：结构体/联合/聚合数组（含多维、指定式混写） |
+| 6 | **73** | 多变量声明（含数组/字符串）、`fx32/fx64`、`is` 改为 `if/else-if` 首匹配即止（含 `+5`/`-3`/`-9..-5`）、前缀 `++/--`、指针表达式隐式声明、聚合指针 `->` 转 `((T*)p)->m`、`sizeof(聚合)=成员数×8` 与真实 `alignof`、`structof/holdof/unionof/bitoffsetof`、顶层非常量初值挪进 `__nihao_init()`、**cooking 编译期常量与宏式编译期函数**、`use` 模块内联 |
 
-当前：**55 OK / 18 FAIL / 2 SKIP**（2 份无 `.expect`，属模块型用例）。
+当前：**73 OK / 0 FAIL / 2 SKIP**（2 份为无 `.expect` 的模块型用例，只比产物不改输出）。
+即 **ncc 0.2.x 的 pos 语料已全覆盖**。
 
 ## N0 / boot1（S1，已完成）
 
@@ -77,15 +79,14 @@ N0 是 NihaoC 的极小子集（`func` / 声明 / 赋值 / `if-else` / `while` /
 
 ## 剩余缺口（26 FAIL + 9 DIFF，按成因归并）
 
-| 类别 | 份数 | 具体 |
-|---|---|---|
-| `cooking` 编译期块/编译期函数 | 2 | `ir_cook` / `cooking_ct_func`：`const NAME = expr` 与 `NAME(args)` 展开未实现 |
-| 从属查询内置 | 1 | `ownerof`：`structof/holdof/unionof/bitoffsetof` 未实现 |
-| 多文件 `use` | 1 | `use_mod`：未实现模块内联（写文件时只处理单 TU） |
-| 多变量声明剩余形态 | 3 | `ir_multi` / `multi_arr_decl` / `len_builtin`：`var {}` 内带数组/字符串初值的分支 |
-| 解析失步 | 1 | `is_pattern_forms`：某处 `is` 形态导致 token 错位（`'func' undeclared`） |
-| 语义 DIFF | 5 | `alignof` 真实对齐、`ir_builtin`、`ir_prefix`、`p0_case`、`is_no_fallthrough` |
-| 其他 | 5 | `fx_types`（`void` 与窄类型混用）、`transfer`（全局初值非常量）、`ir_loop`（临时文件权限，重跑可消）、`void_slot_infer`（`q->x` 左值）、`ir_ptr2`（`q` 未声明） |
+**pos 语料（73 份带 `.expect`）已全部通过**，没有剩余 FAIL/DIFF。
+
+下一步的真实缺口不在 pos，而在两处：
+
+| 方向 | 说明 |
+|---|---|
+| `tests/err` 诊断语料（36 份） | 目前只做「能编对」，没做「该报错时报错」；需要把 ncc 的诊断口径搬过来（越界、const 写、所有权、容量等） |
+| S3 自编译 | `boot2` 用到的语法已全部覆盖，下一步是把 `boot2` 自身源码喂给 `boot2`，产出可自举的 `boot3` |
 
 ## 能力边界（2026-11-21 实测，Windows x86-64 / tcc 0.9.27 / ir-c）
 
