@@ -119,6 +119,22 @@ SELFHOST OK
 **边界**：这里验证的是「**boot 编译器自身可移植、且在不同架构上产出完全相同的 C**」，
 不是 ncc 的 `ir-riscv64` / `ir-loongarch64` 汇编后端（那两档只出 `.s`，属 ncc 侧能力，boot 尚未接入）。
 
+### 自举回归（`./selftest.sh [编译器]`）
+
+`tests/` 下放「自举编译器自身要保证的能力」用例，走 `编译 → tcc → 实跑 → 与 .expect 逐字节比对`：
+
+```
+$ ./selftest.sh            # 用 boot2
+$ ./selftest.sh boot3.exe  # 用自举产物
+自举回归（boot2.exe）：OK 3 / FAIL 0 / SKIP 0
+```
+
+当前 3 份：`array_param`（数组形参）、`struct_value_return`（按值返回结构体）、
+`struct_array_param`（结构体数组形参 + 成员改写）。其中前两份曾暴露真实缺陷——
+`emit_protos()` 生成原型时丢掉数组后缀，定义处是 `int32_t a[]`、原型是 `int32_t`，
+tcc 报 `incompatible types for redefinition`，且**编译器本身不报错**（静默产出不可编译的 C）。
+修法是原型侧把 `pd > 0` 的类型衰减成 `T*`。
+
 ### 内存安全（`./asan.sh`）
 
 tcc 不支持 ASan，故用 clang 18 + `-fsanitize=address` 重建 `boot2.exe.c` / `b3.c` / `b4.c`：
@@ -194,7 +210,7 @@ N0 是 NihaoC 的极小子集（`func` / 声明 / 赋值 / `if-else` / `while` /
 | `malloc(类型[N])` | ✅ | 大缓冲必须走堆（栈帧上限 6000 字节） |
 | `free` | ❌ 不可调 | `void*` 在产物 C 里是 `int64_t`，tcc 的 `free(void*)` 原型拒收 |
 | 全局标量 `var g i32` | ✅ | 编译器状态用它；**全局数组/聚合不支持**，缓冲地址存 `i64` 再取回 |
-| 数组形参 | ❌ | `func f(a char[])` 解析失败 → 用 `void*` |
+| 数组形参 | ✅ | `func f(a i32[])` / `S arr[]` 可用（2026-11-24 修：原型按指针衰减）；仅限一维，源侧既有代码仍用 `void*` 写法 |
 | `void*` + 数组后缀寻址 | ✅ | `p.(i8[65536])[i]` |
 | `p.(AggType).成员` | ⚠️ | 标量成员可读写；数组成员经 `.(AggType)` 不支持 |
 | 结构体按值传参 / 返回 | ✅ | 含 `char[N]` 成员；整块复制，别把大缓冲塞结构体 |

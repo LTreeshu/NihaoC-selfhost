@@ -58,3 +58,6 @@ boot2_rv64
 boot2_la64
 nat_hello.c
 rv_hello.c
+
+# 自举回归产物
+selftest_out/

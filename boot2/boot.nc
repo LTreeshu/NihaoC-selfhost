@@ -8,7 +8,7 @@ use stdio
  *
  * 平台约束（见 ../README.md）：
  *   - 全局只能放标量 → 所有缓冲用 `var gxxx i64` 存地址，用时 `p void = gxxx` 取回；
- *   - 数组形参不支持 → 一律 void* + `.(i8[N])[i]`；
+ *   - 数组形参可用（一维，原型按指针衰减）；源侧既有代码仍用 void* + `.(i8[N])[i]`；
  *   - 无 auto-free；函数体 `{` 必须与签名同行。
  *
  * 输入：环境变量 BOOT_IN（缺省 input.n0）  输出：BOOT_OUT（缺省 output.c）
@@ -4465,6 +4465,9 @@ func emit_protos() {
                                     if pd > 0 { eo("char*") } else { eo("char") }
                                 } else {
                                     ctype(pc)
+                                    /* 数组形参在原型里也要衰减成指针，否则与定义处
+                                       `T a[]` 类型冲突（tcc: incompatible redefinition） */
+                                    if pd > 0 { eo("*") }
                                 }
                                 if is_p(",") == 1 { adv() }
                                 continue
