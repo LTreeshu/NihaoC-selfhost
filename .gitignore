@@ -47,4 +47,5 @@ t_vs.*
 # ASan 构建产物
 boot2_asan.*
 boot3_asan.*
+boot4_asan.*
 asan.log

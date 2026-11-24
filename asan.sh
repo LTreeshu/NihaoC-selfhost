@@ -29,11 +29,11 @@ check_report() {
     return 0
 }
 
-echo "[1/4] 构建 boot2（ncc）"
+echo "[1/5] 构建 boot2（ncc）"
 "$NCC" build boot2/boot.nc -backend ir-c -o boot2.exe 2>&1 | grep -v "warning:" || true
 [ -f boot2.exe.c ] || { echo "FAIL: 无 boot2.exe.c"; exit 1; }
 
-echo "[2/4] boot2 → ASan 版，跑全量 pos+err"
+echo "[2/5] boot2 → ASan 版，跑全量 pos+err"
 "$CLANG" $ASAN_FLAGS boot2.exe.c -o boot2_asan.exe 2>"$TMP/asan_build1.log" || {
     echo "FAIL: clang 构建 boot2_asan 失败"; grep error "$TMP/asan_build1.log" | head -5; exit 1; }
 n_ok=0
@@ -47,7 +47,7 @@ for src in "$TESTS"/pos/*.nc "$TESTS"/err/*.nc; do
 done
 echo "  boot2_asan 跑完 $n_ok 份输入"
 
-echo "[3/4] boot2 → b3.c → boot3_asan，跑全量 pos+err"
+echo "[3/5] boot2 → b3.c → boot3_asan，跑全量 pos+err"
 BOOT_IN=boot2/boot.nc BOOT_OUT=b3.c ./boot2.exe > /dev/null || { echo "FAIL: 自编译失败"; exit 1; }
 "$CLANG" $ASAN_FLAGS b3.c -o boot3_asan.exe 2>"$TMP/asan_build2.log" || {
     echo "FAIL: clang 构建 boot3_asan 失败"; grep error "$TMP/asan_build2.log" | head -5; exit 1; }
@@ -60,7 +60,23 @@ for src in "$TESTS"/pos/*.nc "$TESTS"/err/*.nc; do
 done
 echo "  boot3_asan 跑完"
 
-echo "[4/4] 产物程序：pos 生成 C 用 clang+ASan 编译运行"
+echo "[4/5] boot3 → b4.c → boot4_asan，跑全量 pos+err"
+"$TCC" b3.c -o boot3_tcc.exe 2>"$TMP/tcc_b3.log" || {
+    echo "FAIL: tcc 构建 boot3_tcc 失败"; grep -v warning "$TMP/tcc_b3.log" | head -5; exit 1; }
+BOOT_IN=boot2/boot.nc BOOT_OUT=b4.c ./boot3_tcc.exe > /dev/null || { echo "FAIL: boot3 自编译失败"; exit 1; }
+cmp -s b3.c b4.c && echo "  不动点：b3.c 与 b4.c 逐字节相同" || { echo "FAIL: b3.c != b4.c"; fail=1; }
+"$CLANG" $ASAN_FLAGS b4.c -o boot4_asan.exe 2>"$TMP/asan_build3.log" || {
+    echo "FAIL: clang 构建 boot4_asan 失败"; grep error "$TMP/asan_build3.log" | head -5; exit 1; }
+for src in "$TESTS"/pos/*.nc "$TESTS"/err/*.nc; do
+    nm=$(basename "$src" .nc)
+    rm -f "$TMP/asan4_$nm.c"
+    ASAN_OPTIONS=detect_leaks=0 BOOT_IN="$src" BOOT_OUT="$TMP/asan4_$nm.c" \
+        ./boot4_asan.exe > /dev/null 2>"$TMP/asan4_$nm.err"
+    grep -q "ERROR: AddressSanitizer" "$TMP/asan4_$nm.err" && { echo "ASAN boot4: $nm" >> asan.log; fail=1; }
+done
+echo "  boot4_asan 跑完"
+
+echo "[5/5] 产物程序：pos 生成 C 用 clang+ASan 编译运行"
 nprod=0
 for src in "$TESTS"/pos/*.nc; do
     nm=$(basename "$src" .nc)

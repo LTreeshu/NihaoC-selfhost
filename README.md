@@ -17,12 +17,14 @@ NihaoC-selfhost/
 ├── check.sh           S1 回归：编 boot1 → 跑样例 → tcc → 比对期望
 ├── coverage.sh        S2 度量：用 ncc 自带 pos 用例喂 boot2，逐份比对 .expect
 ├── err.sh             诊断度量：err 用例必须「报错 + 无产物 + 消息命中 .expect」
-├── selfhost.sh        S3 闭环：ncc→boot2→boot3→不动点 + 样例 + boot3 全语料
-├── asan.sh            内存安全：boot2/boot3 与产物程序全部过 ASan
+├── selfhost.sh        S3 闭环：ncc→boot2→boot3→不动点 + 样例 + boot3/boot4 全语料
+├── asan.sh            内存安全：boot2/boot3/boot4 与产物程序全部过 ASan
 ├── coverage.log       最近一次 pos 度量明细（boot2）
 ├── err.log            最近一次 err 度量明细（boot2）
-├── coverage-boot3.log boot3（自举产物）的 pos 明细
+├── coverage-boot3.log boot3（第一代自举产物）的 pos 明细
 ├── err-boot3.log      boot3 的 err 明细
+├── coverage-boot4.log boot4（第二代自举产物）的 pos 明细
+├── err-boot4.log      boot4 的 err 明细
 ├── boot1/boot.nc      Stage 1：N0 子集 → C（约 380 行）
 ├── boot2/boot.nc      Stage 2：NihaoC 语法 → C（token 化 + 直接出码，约 1900 行）
 ├── samples/*.n0       N0 样例 + *.expected
@@ -77,25 +79,34 @@ err 用例：OK 36 / FAIL 0
 ### 自编译闭环（`./selfhost.sh`）
 
 ```
-[1/5] ncc 构建 boot2
-[2/5] boot2 编译自身 → b3.c → boot3
-[3/5] boot3 编译自身 → b4.c，FIXPOINT OK（b3.c 与 b4.c 逐字节相同）
-[4/5] boot3 / boot4 跑 samples/*.n0 → 全部 PASS
-[5/5] boot3 跑全量 pos / err 语料 → boot3: pos OK 73 / err OK 36
+[1/6] ncc 构建 boot2
+[2/6] boot2 编译自身 → b3.c → boot3
+[3/6] boot3 编译自身 → b4.c，FIXPOINT OK（b3.c 与 b4.c 逐字节相同）
+[4/6] boot3 / boot4 跑 samples/*.n0 → 全部 PASS
+[5/6] boot3 跑全量 pos / err 语料 → boot3: pos OK 73 / err OK 36
+[6/6] boot4 跑全量 pos / err 语料 → boot4: pos OK 73 / err OK 36
 SELFHOST OK
 ```
 
-第 5 步是**自举产物的等价性验收**：`boot3` 是 boot2 编译出来的编译器，它跑同一套语料
-同样拿到 **pos 73/73、err 36/36**（明细在 `coverage-boot3.log` / `err-boot3.log`）。
+第 5、6 步是**两代自举产物的等价性验收**：
+
+| 编译器 | 来源 | pos | err |
+|---|---|---|---|
+| `boot2` | ncc 编译 | 73/73 | 36/36 |
+| `boot3` | boot2 编译 | 73/73 | 36/36 |
+| `boot4` | boot3 编译 | 73/73 | 36/36 |
+
+明细分别在 `coverage.log`/`err.log`、`coverage-boot3.log`/`err-boot3.log`、`coverage-boot4.log`/`err-boot4.log`。
 
 ### 内存安全（`./asan.sh`）
 
-tcc 不支持 ASan，故用 clang 18 + `-fsanitize=address` 重建 `boot2.exe.c` / `b3.c`：
+tcc 不支持 ASan，故用 clang 18 + `-fsanitize=address` 重建 `boot2.exe.c` / `b3.c` / `b4.c`：
 
 | 对象 | 规模 | 结果 |
 |---|---|---|
 | `boot2_asan`（编译器本体） | 跑 pos+err 共 111 份输入 | **0 条 ASan 报告** |
-| `boot3_asan`（自举产物） | 跑 pos+err 共 111 份输入 | **0 条 ASan 报告** |
+| `boot3_asan`（第一代自举产物） | 跑 pos+err 共 111 份输入 | **0 条 ASan 报告** |
+| `boot4_asan`（第二代自举产物） | 跑 pos+err 共 111 份输入 | **0 条 ASan 报告** |
 | 产物程序（pos 生成 C 用 ASan 重编） | 72 份可执行 | **0 条 ASan 报告** |
 
 3 份 SKIP 是模块型/无 `main` 用例（`mathmod` / `module_top_forms` / `use_mod`），clang 链接期无入口，与内存安全无关。
