@@ -4561,7 +4561,7 @@ func use_module() {
         path[pi + 2] = 99
         path[pi + 3] = 0
     }
-    f void = fopen(path, "r")
+    f void = fopen(path, "rb")
     if f == 0 {
         /* 找不到模块（如 stdio）：当作空导入 */
         skip_line()
@@ -4784,7 +4784,7 @@ func main() {
     if inp == 0 {
         inp = "input.n0"
     }
-    f void = fopen(inp, "r")
+    f void = fopen(inp, "rb")
     if f == 0 {
         puts("boot2: cannot open input")
         return
@@ -4848,7 +4848,7 @@ func main() {
     if outp == 0 {
         outp = "output.c"
     }
-    o void = fopen(outp, "w")
+    o void = fopen(outp, "wb")
     if o == 0 {
         puts("boot2: cannot create output")
         return

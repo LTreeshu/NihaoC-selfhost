@@ -19,6 +19,8 @@ NihaoC-selfhost/
 ├── err.sh             诊断度量：err 用例必须「报错 + 无产物 + 消息命中 .expect」
 ├── selfhost.sh        S3 闭环：ncc→boot2→boot3→不动点 + 样例 + boot3/boot4 全语料
 ├── asan.sh            内存安全：boot2/boot3/boot4 与产物程序全部过 ASan
+├── cross.sh           交叉后端：zig 交叉编译 + WSL qemu 执行与产物比对
+├── xrun.sh            （cross.sh 在 WSL 侧调用的遍历脚本）
 ├── coverage.log       最近一次 pos 度量明细（boot2）
 ├── err.log            最近一次 err 度量明细（boot2）
 ├── coverage-boot3.log boot3（第一代自举产物）的 pos 明细
@@ -97,6 +99,23 @@ SELFHOST OK
 | `boot4` | boot3 编译 | 73/73 | 36/36 |
 
 明细分别在 `coverage.log`/`err.log`、`coverage-boot3.log`/`err-boot3.log`、`coverage-boot4.log`/`err-boot4.log`。
+
+### 交叉后端（`./cross.sh`，riscv64 / loongarch64）
+
+做法：用 **zig 0.15.2** 把 `boot2.exe.c` 交叉编译成 `riscv64-linux-musl` / `loongarch64-linux-musl`
+静态可执行，在 **WSL + qemu-user-static 8.2.2** 下执行，与 native 版逐份对比。
+
+| 检查 | 规模 | 结果 |
+|---|---|---|
+| 生成的 C 与 native 逐字节相同 | 75 份输入 × 2 目标 = **150** | **150 相同 / 0 不同** |
+| err 用例行为一致（rc + 是否产出） | 36 × 2 = **72** | **72 一致 / 0 不一致** |
+| 产物程序在目标架构执行（`hello`/`fib`/`ir_struct`/`is_pattern_forms`/`type_forms` × 2 目标） | 10 次 | **10 PASS**（输出与 `.expect` 一致） |
+
+为此顺带修了一处**跨平台缺陷**：`fopen(..., "w")` 在 Windows 是文本模式，会把 `\n` 写成 `\r\n`，
+导致跨平台产物无法逐字节比对；已改成 `"rb"` / `"wb"` 二进制模式。
+
+**边界**：这里验证的是「**boot 编译器自身可移植、且在不同架构上产出完全相同的 C**」，
+不是 ncc 的 `ir-riscv64` / `ir-loongarch64` 汇编后端（那两档只出 `.s`，属 ncc 侧能力，boot 尚未接入）。
 
 ### 内存安全（`./asan.sh`）
 

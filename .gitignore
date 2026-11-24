@@ -49,3 +49,12 @@ boot2_asan.*
 boot3_asan.*
 boot4_asan.*
 asan.log
+
+# 交叉验证产物
+x/*
+!x/.keep
+cross.log
+boot2_rv64
+boot2_la64
+nat_hello.c
+rv_hello.c
