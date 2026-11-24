@@ -102,6 +102,8 @@ SELFHOST OK
 
 ### 交叉后端（`./cross.sh`，riscv64 / loongarch64）
 
+前置：`zig`（Windows 侧）、WSL 里 `apt install -y qemu-user-static`（提供 `qemu-riscv64-static` / `qemu-loongarch64-static`）。
+
 做法：用 **zig 0.15.2** 把 `boot2.exe.c` 交叉编译成 `riscv64-linux-musl` / `loongarch64-linux-musl`
 静态可执行，在 **WSL + qemu-user-static 8.2.2** 下执行，与 native 版逐份对比。
 
