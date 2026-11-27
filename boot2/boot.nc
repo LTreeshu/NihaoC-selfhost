@@ -1635,6 +1635,15 @@ func expr_primary() {
             }
         }
         /* 普通标识符 */
+        /* 类型名不得出现在值位置：对齐 ncc 对 `Type{...}` 等误用的报错，
+           避免把类型名当未知标识符静默出成外部符号（产出不可编译/错值的 C）。 */
+        if code_of(gi) > 0 {
+            if sym_find(gi) < 0 {
+                emsg1("type name used as value: ", gi)
+                adv()
+                return
+            }
+        }
         etk(gi)
         adv()
         return

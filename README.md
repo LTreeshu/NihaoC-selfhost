@@ -246,3 +246,15 @@ N0 是 NihaoC 的极小子集（`func` / 声明 / 赋值 / `if-else` / `while` /
 | S1 | boot1 编译 N0 样例 → C → 可运行 | ✅ |
 | S2 | boot2 覆盖 ncc 0.2.x 语法：pos 73/73、err 36/36 | ✅ |
 | S3 | 自编译闭环：boot3 产物与 boot2 逐字节相同（不动点） | ✅ |
+| S4 | 用自举链继续演进 boot 编译器本身（改动 `boot.nc` 后仍须过 FIXPOINT + 全语料） | 🟡 进行中 |
+
+### S4 开发日志
+
+- **2026-11-28 · 类型名值位置诊断（与 ncc 对齐）**：`boot.nc` 的 `primary` 值分支补一条
+  `code_of(gi) > 0 && sym_find(gi) < 0 → "type name used as value: X"`。此前 `p N = N{7}`
+  （NihaoC 无 `Type{...}` 复合字面量）会被静默出成 `N p = N;{ 7;}`——错值且不报错，正是项目
+  最忌的「编译器不报错却产出不可编译/错值 C」。修复后 rc!=0 且不产出，与 ncc 的
+  `undeclared variable` 判据等价。枚举成员（`GREEN`）、libc 外部符号（`fopen`/`getenv`）、
+  `sizeof/malloc/.(T)` 的类型位置各走专门路径，不受影响。
+  改动经完整自举验证：`boot2 → boot3 → boot4` **FIXPOINT OK**，boot3/boot4 跑 pos 73 / err 36 /
+  selftest 6 全绿。见 `probes/probe_type_as_value.nc`。
