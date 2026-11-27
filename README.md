@@ -35,9 +35,19 @@ NihaoC-selfhost/
 
 ## 怎么跑
 
+> **前置：ncc 必须是 0.2.x。** 本工作区依赖 NihaoC 仓库编译出的 `ncc`（`ir-c` 后端）。
+> 若 `NihaoC/ncc/build/ncc.exe` 是较旧/较新分支的陈旧产物（实测 v0.5.0 会让 `boot1` 报
+> `undeclared variable`、`boot2` 报 `expected '}' got TOK_EOF`），先进 `NihaoC/ncc` 用 xmake
+> 重新构建（当前源码版本 v0.2.3），再回来跑本目录脚本：
+>
+> ```bash
+> cd ../NihaoC/ncc && xmake -r -y        # 产出 build/ncc.exe（v0.2.3）
+> ```
+
 ```bash
-export NIHAO_TCC_DIR="D:/Program Files/tcc"   # Windows
-export NCC=../NihaoC/ncc/build/ncc.exe        # 可覆盖
+export NIHAO_TCC_DIR="D:/devtools/tcc"    # tcc 实际所在目录（按机器调整）
+export TCC="$NIHAO_TCC_DIR/tcc"           # 脚本里 tcc 的默认路径可能指向别处，显式覆盖
+export NCC=../NihaoC/ncc/build/ncc.exe    # 可覆盖
 
 ./check.sh        # S1：两个样例全绿
 ./coverage.sh     # S2：打印 "pos 用例 75 份：OK x / FAIL y / SKIP z"
@@ -125,12 +135,15 @@ SELFHOST OK
 
 ```
 $ ./selftest.sh            # 用 boot2
-$ ./selftest.sh boot3.exe  # 用自举产物
-自举回归（boot2.exe）：OK 3 / FAIL 0 / SKIP 0
+$ ./selftest.sh ./boot3.exe  # 用自举产物
+自举回归（boot2.exe）：OK 6 / FAIL 0 / SKIP 0
 ```
 
-当前 3 份：`array_param`（数组形参）、`struct_value_return`（按值返回结构体）、
-`struct_array_param`（结构体数组形参 + 成员改写）。其中前两份曾暴露真实缺陷——
+当前 6 份：`array_param`（数组形参）、`struct_value_return`（按值返回结构体）、
+`struct_array_param`（结构体数组形参 + 成员改写），以及本轮新增的 `free_heap`（堆分配 + `free`）、
+`agg_array_member`（聚合数组成员经 `.(T)` 读写）、`brace_newline`（函数体 `{` 换行到下一行）。
+后三份把此前 README 标注为 ❌/⚠️ 的能力固化为回归：在 ncc v0.2.3 下，boot2 / boot3 / boot4
+三个编译器均 `OK 6 / FAIL 0`。其中前两份曾暴露真实缺陷——
 `emit_protos()` 生成原型时丢掉数组后缀，定义处是 `int32_t a[]`、原型是 `int32_t`，
 tcc 报 `incompatible types for redefinition`，且**编译器本身不报错**（静默产出不可编译的 C）。
 修法是原型侧把 `pd > 0` 的类型衰减成 `T*`。
@@ -200,22 +213,22 @@ N0 是 NihaoC 的极小子集（`func` / 声明 / 赋值 / `if-else` / `while` /
 | 错误恢复 | 出错后按行/括号跳过，不保证只报一条（`err.sh` 只要求命中期望串） |
 | 未覆盖 | 语言层新特性（动态数组增长、切片运行时长度）、ASan 级别的内存安全验证、`ir-riscv64`/`ir-loongarch64` 交叉后端 |
 
-## 能力边界（2026-11-21 实测，Windows x86-64 / tcc 0.9.27 / ir-c）
+## 能力边界（2026-11-28 复核，Windows x86-64 / tcc 0.9.27 / ir-c / ncc v0.2.3）
 
 | 能力 | 状态 | 说明 |
 |---|---|---|
 | 文件读 / 写 | ✅ | `fopen/fread/fwrite/fclose` 走「未知标识符→外部符号」，tcc 连 libc |
 | `getenv` | ✅ | 取输入/输出路径靠它（`BOOT_IN` / `BOOT_OUT`） |
-| `main` 带参 | ⚠️ | `func main(argc i32, argv void)` 可编译、`argc` 真实传入；取 `argv[i]` 字符串未走通 |
+| `main` 带参 | ✅ | `func main(argc i32, argv void)` 可编译、`argc` 真实传入；取字符串走 `argv.(void[N])[i]`（直接 `argv[i]` 仍按泛型指针拒收，需先 `.(T)`） |
 | `malloc(类型[N])` | ✅ | 大缓冲必须走堆（栈帧上限 6000 字节） |
-| `free` | ❌ 不可调 | `void*` 在产物 C 里是 `int64_t`，tcc 的 `free(void*)` 原型拒收 |
+| `free` | ✅ | `free(p)` 正常生成并链接 libc `free`（`p` 为 `void*`）。语言层仍无 auto-free，不自动释放 |
 | 全局标量 `var g i32` | ✅ | 编译器状态用它；**全局数组/聚合不支持**，缓冲地址存 `i64` 再取回 |
 | 数组形参 | ✅ | `func f(a i32[])` / `S arr[]` 可用（2026-11-24 修：原型按指针衰减）；仅限一维，源侧既有代码仍用 `void*` 写法 |
 | `void*` + 数组后缀寻址 | ✅ | `p.(i8[65536])[i]` |
-| `p.(AggType).成员` | ⚠️ | 标量成员可读写；数组成员经 `.(AggType)` 不支持 |
+| `p.(AggType).成员` | ✅ | 标量成员与**数组成员**（`p.(Buf).data[i]`）均可读写（2026-11-28 复核；见 `tests/agg_array_member`） |
 | 结构体按值传参 / 返回 | ✅ | 含 `char[N]` 成员；整块复制，别把大缓冲塞结构体 |
 | 互递归 | ✅ | `block ↔ stmt` 靠它 |
-| 函数体 `{` 换行 | ❌ | `{` 必须与签名同行 |
+| 函数体 `{` 换行 | ✅ | `{` 与签名同行或换到下一行均可正确出码（2026-11-28 复核；见 `tests/brace_newline`） |
 | auto-free / 可增长数组 | ❌ | 定容缓冲；当前直接不释放 |
 
 ## 编译器侧必须的修补（分支 `selfhost`，已落地）
