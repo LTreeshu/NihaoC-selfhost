@@ -61,3 +61,6 @@ rv_hello.c
 
 # 自举回归产物
 selftest_out/
+
+# 预编译发布版本：有意纳入版本库（覆盖上面的 *.exe 规则）
+!prebuilt/nihao-selfhost.exe
