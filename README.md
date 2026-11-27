@@ -136,14 +136,15 @@ SELFHOST OK
 ```
 $ ./selftest.sh            # 用 boot2
 $ ./selftest.sh ./boot3.exe  # 用自举产物
-自举回归（boot2.exe）：OK 6 / FAIL 0 / SKIP 0
+自举回归（boot2.exe）：OK 7 / FAIL 0 / SKIP 0
 ```
 
-当前 6 份：`array_param`（数组形参）、`struct_value_return`（按值返回结构体）、
-`struct_array_param`（结构体数组形参 + 成员改写），以及本轮新增的 `free_heap`（堆分配 + `free`）、
-`agg_array_member`（聚合数组成员经 `.(T)` 读写）、`brace_newline`（函数体 `{` 换行到下一行）。
-后三份把此前 README 标注为 ❌/⚠️ 的能力固化为回归：在 ncc v0.2.3 下，boot2 / boot3 / boot4
-三个编译器均 `OK 6 / FAIL 0`。其中前两份曾暴露真实缺陷——
+当前 7 份：`array_param`（数组形参）、`struct_value_return`（按值返回结构体）、
+`struct_array_param`（结构体数组形参 + 成员改写），`free_heap`（堆分配 + `free`）、
+`agg_array_member`（聚合数组成员经 `.(T)` 读写）、`brace_newline`（函数体 `{` 换行到下一行），
+以及本轮新增的 `u64_type`（`u64` 类型：声明/算术/`sizeof`/数组/`len`，此前 `code_of` 缺该类型直接崩）。
+前几份把此前 README 标注为 ❌/⚠️ 或未实现的语法固化为回归：在 ncc v0.2.3 下，boot2 / boot3 / boot4
+三个编译器均 `OK 7 / FAIL 0`。其中 `array_param` 等曾暴露真实缺陷——
 `emit_protos()` 生成原型时丢掉数组后缀，定义处是 `int32_t a[]`、原型是 `int32_t`，
 tcc 报 `incompatible types for redefinition`，且**编译器本身不报错**（静默产出不可编译的 C）。
 修法是原型侧把 `pd > 0` 的类型衰减成 `T*`。
@@ -258,3 +259,10 @@ N0 是 NihaoC 的极小子集（`func` / 声明 / 赋值 / `if-else` / `while` /
   `sizeof/malloc/.(T)` 的类型位置各走专门路径，不受影响。
   改动经完整自举验证：`boot2 → boot3 → boot4` **FIXPOINT OK**，boot3/boot4 跑 pos 73 / err 36 /
   selftest 6 全绿。见 `probes/probe_type_as_value.nc`。
+
+- **2026-11-28 · 实现未支持语法 `u64` 类型**：`code_of` 的标量映射缺 `u64`，导致 `x u64 = …`、
+  `sizeof(u64)`、`u64` 数组在 boot2 下直接崩（ncc 侧正常，按 8 字节存为 `int64_t`）。补一行
+  `if txt_eq(i, "u64") == 1 { return 4 }`，复用 `i64` 的码 4（`ctype→int64_t`、`size_of_code→8`），
+  与 ncc 逐字节等价（`sizeof(u64)=8`、`18446744073709551615` 打印 `-1`）。
+  经完整自举验证：`boot2 → boot3 → boot4` **FIXPOINT OK**，boot3/boot4 跑 pos 73 / err 36 /
+  selftest 7 全绿。见 `tests/u64_type.nc`。

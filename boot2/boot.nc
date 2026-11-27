@@ -553,6 +553,7 @@ func code_of(i i32) i32 {
     if txt_eq(i, "u8") == 1 { return 5 }
     if txt_eq(i, "u16") == 1 { return 6 }
     if txt_eq(i, "u32") == 1 { return 7 }
+    if txt_eq(i, "u64") == 1 { return 4 }
     if txt_eq(i, "f32") == 1 { return 8 }
     if txt_eq(i, "f64") == 1 { return 9 }
     if txt_eq(i, "char") == 1 { return 10 }
