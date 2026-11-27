@@ -5,10 +5,11 @@
 ## 来源与可信度
 
 - 生成链：`ncc v0.2.3 (ir-c)` → `boot2` → `boot2` 编译 `boot.nc` → `boot3` → `boot3` 编译 `boot.nc` → **`boot4`**（本二进制）。
-- 源码：`boot2/boot.nc`，对应提交 `927986c`。
+- 源码：`boot2/boot.nc`，对应提交 `bb422af`。
 - 不动点已验证：`boot3` 与 `boot4` 编译同一份 `boot.nc` 得到的 C **逐字节相同**（`b3.c ≡ b4.c`）。
 - 平台：Windows x86-64，用 tcc 0.9.27 链接。
-- 验收（均以本二进制运行）：pos 73/73、err 36/36、selftest 6/6、samples 全绿。
+- 验收（均以本二进制运行）：pos 73/73、err 36/36、selftest 7/7、samples 全绿。
+- 相对上一版新增：`u64` 类型（声明/算术/`sizeof`/数组/`len`），类型名值位置诊断。
 
 ## 用法
 

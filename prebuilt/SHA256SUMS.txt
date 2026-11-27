@@ -1,1 +1,1 @@
-a9ec1489f8e865a5a6cb865a0b47fb39c6b8f7849394d931e94e2e3b735353f2 *nihao-selfhost.exe
+99ffcd2549348c2811c247bf14351eaff5d2a87aaebe6073c70ef9a63be0cd3f *nihao-selfhost.exe
