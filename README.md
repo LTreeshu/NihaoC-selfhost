@@ -136,15 +136,15 @@ SELFHOST OK
 ```
 $ ./selftest.sh            # 用 boot2
 $ ./selftest.sh ./boot3.exe  # 用自举产物
-自举回归（boot2.exe）：OK 7 / FAIL 0 / SKIP 0
+自举回归（boot2.exe）：OK 9 / FAIL 0 / SKIP 0
 ```
 
-当前 7 份：`array_param`（数组形参）、`struct_value_return`（按值返回结构体）、
-`struct_array_param`（结构体数组形参 + 成员改写），`free_heap`（堆分配 + `free`）、
-`agg_array_member`（聚合数组成员经 `.(T)` 读写）、`brace_newline`（函数体 `{` 换行到下一行），
-以及本轮新增的 `u64_type`（`u64` 类型：声明/算术/`sizeof`/数组/`len`，此前 `code_of` 缺该类型直接崩）。
-前几份把此前 README 标注为 ❌/⚠️ 或未实现的语法固化为回归：在 ncc v0.2.3 下，boot2 / boot3 / boot4
-三个编译器均 `OK 7 / FAIL 0`。其中 `array_param` 等曾暴露真实缺陷——
+当前 9 份：`array_param`（数组形参）、`struct_value_return`（按值返回结构体）、
+`struct_array_param`（结构体数组形参 + 成员改写）、`free_heap`（堆分配 + `free`）、
+`agg_array_member`（聚合数组成员经 `.(T)` 读写）、`brace_newline`（函数体 `{` 换行）、
+`u64_type`（`u64` 类型），以及本轮新增的 `flow_transfer`（flow→flow 转移仅接收方释放，
+双释放即崩）、`flow_rebind`（整变量重绑定按新右值重判，字面量不 free）。
+在 ncc v0.2.3 下，boot2 / boot3 / boot4 三个编译器均 `OK 9 / FAIL 0`。其中 `array_param` 等曾暴露真实缺陷——
 `emit_protos()` 生成原型时丢掉数组后缀，定义处是 `int32_t a[]`、原型是 `int32_t`，
 tcc 报 `incompatible types for redefinition`，且**编译器本身不报错**（静默产出不可编译的 C）。
 修法是原型侧把 `pd > 0` 的类型衰减成 `T*`。
@@ -230,7 +230,7 @@ N0 是 NihaoC 的极小子集（`func` / 声明 / 赋值 / `if-else` / `while` /
 | 结构体按值传参 / 返回 | ✅ | 含 `char[N]` 成员；整块复制，别把大缓冲塞结构体 |
 | 互递归 | ✅ | `block ↔ stmt` 靠它 |
 | 函数体 `{` 换行 | ✅ | `{` 与签名同行或换到下一行均可正确出码（2026-11-28 复核；见 `tests/brace_newline`） |
-| auto-free / 可增长数组 | ❌ | 定容缓冲；当前直接不释放 |
+| auto-free / 可增长数组 | ✅ / ❌ | **flow 自动释放已实现（2026-11-28，§11.1/§12.1）**：malloc 绑定的 `void*` 在块/函数退出自动 `free`；字面量/`&x`/聚合初值不释放；转移仅接收方释放；显式 `free` 注销所有权；随返回移交不释放。可增长数组仍 ❌（留 2.0 ptr+len+cap） |
 
 ## 编译器侧必须的修补（分支 `selfhost`，已落地）
 
@@ -266,3 +266,19 @@ N0 是 NihaoC 的极小子集（`func` / 声明 / 赋值 / `if-else` / `while` /
   与 ncc 逐字节等价（`sizeof(u64)=8`、`18446744073709551615` 打印 `-1`）。
   经完整自举验证：`boot2 → boot3 → boot4` **FIXPOINT OK**，boot3/boot4 跑 pos 73 / err 36 /
   selftest 7 全绿。见 `tests/u64_type.nc`。
+
+- **2026-11-28 · 实现内存管理：flow 自动释放（§11.1/§12.1）**：ncc 的 ir-c 也不生成 `free`，
+  本轮按设计书落地。实现载体是 `gstate` 状态机扩展（0=净 1=冻结 2=失效 **3=拥有堆块 4=冻结且拥有**，
+  零新增全局——ncc 对编译器源码全局数量有硬上限）：
+  - 声明/隐式指针右值以 `malloc(` 开头 → 状态 3，块/函数退出（`block()`/`block_main()` 收尾）
+    对区间内状态 3 的 `void*` 生成 `free`；
+  - 字面量 / `&x` / 聚合初值不登记 → 永不 free（free 只读段/栈地址会崩）；
+  - `flow→flow` 转移：接收方接管（3），源失效（2）→ 单次释放；
+  - 借用冻结：源 3→4，块退出解冻恢复 3（冻结/失效诊断语义不变）；
+  - 整变量重绑定按新右值重判；显式 `free(x)` 注销所有权；裸标识符 `return p` 随返回移交。
+  实现中顺带踩实两条语言事实：**声明式读取构成借用**（`old9 i32 = p.(...)[i]` 冻结 p，
+  条件式读取不算）、ncc 编译器源码**全局变量数量有硬上限**。
+  验证：pos 73 / err 36 / selftest 9 / **FIXPOINT OK** / boot3+boot4 selftest 9 /
+  **ASan 0 内存错误**（编译器 + 全部产物）。回归：`tests/flow_transfer.nc`、`tests/flow_rebind.nc`。
+  已知边界：函数内 `return` 提前退出跳过退出释放（泄漏不悬垂）；经 flow 返回函数的调用方
+  隐式接收不登记（泄漏不双释放）；多变量声明初值不登记。

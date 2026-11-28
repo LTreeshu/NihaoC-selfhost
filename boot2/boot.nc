@@ -73,7 +73,7 @@ var gmdef2 i64
 var gsel i64
 var gmdn i32
 var gmd i64
-var gstate i64
+var gstate i64      /* 每符号状态机：0=净 1=冻结 2=失效 3=拥有堆块 4=冻结且拥有（§11.1/§12.1） */
 var glastfrz i32
 
 /* ================= 词法 ================= */
@@ -1618,6 +1618,11 @@ func expr_primary() {
                     print("错误: use of frozen pointer '%s'\n", gout)
                     gerr = gerr + 1
                     st8.(i32[512])[si8] = 0
+                } else if st8.(i32[512])[si8] == 4 {
+                    tok_cstr(gi)
+                    print("错误: use of frozen pointer '%s'\n", gout)
+                    gerr = gerr + 1
+                    st8.(i32[512])[si8] = 3
                 } else if st8.(i32[512])[si8] == 2 {
                     tok_cstr(gi)
                     print("错误: use of invalidated pointer '%s'\n", gout)
@@ -2405,9 +2410,31 @@ func emit_fnptr_decl(nameTok i32, retc i32, vis i32) {
 
 /* ================= 语句 ================= */
 
+/* 块/函数退出：对本区间内仍拥有堆块（状态 3）的 void* 符号生成 free（§11.1 自动释放）。
+ * 只处理 code 12（void*，malloc 绑定的载体）；字面量/&x/聚合初值从不登记所有权。
+ * 转移/重绑定/随返回移交都会先把状态清掉，故不会双释放。 */
+func emit_scope_frees(gn0 i32) {
+    k9 i32 = gn0
+    while k9 < gn {
+        stb void = gstate
+        if stb.(i32[512])[k9] == 3 {
+            c9 i32 = sym_code(k9)
+            if c9 == 12 {
+                stb.(i32[512])[k9] = 0
+                nm9 void = gnames
+                eo("free(")
+                etk(nm9.(i32[512])[k9])
+                eo("); ")
+            }
+        }
+        k9 = k9 + 1
+    }
+}
+
 func block() {
     fr i32[64]
     fn2 i32 = 0
+    gn0 i32 = gn
     need_p("{")
     eo("{ ")
     skip_nl()
@@ -2429,9 +2456,15 @@ func block() {
     ks i32 = 0
     while ks < fn2 {
         stf void = gstate
-        stf.(i32[512])[fr[ks]] = 0
+        if stf.(i32[512])[fr[ks]] == 4 {
+            /* 冻结且拥有 → 解冻，恢复拥有（块退出仍需 free） */
+            stf.(i32[512])[fr[ks]] = 3
+        } else {
+            stf.(i32[512])[fr[ks]] = 0
+        }
         ks = ks + 1
     }
+    emit_scope_frees(gn0)
     eo("}")
 }
 
@@ -2731,23 +2764,70 @@ func stmt() {
         }
     }
 
+    /* 普通表达式语句；`x = rhs` 整变量重绑定时按新右值重判堆所有权（§11.1）；
+     * 显式 `free(x)` 调用注销所有权，防止退出时双释放 */
+    stx i32 = gi
+    rmb i32 = 0
+    if tk_kind(stx) == 1 {
+        if tk_kind(stx + 1) == 6 {
+            if txt_eq(stx + 1, "=") == 1 {
+                if txt_eq(stx + 2, "malloc") == 1 { rmb = 1 }
+            }
+        }
+    }
+    frx i32 = 0 - 1
+    if txt_eq(stx, "free") == 1 {
+        if tk_kind(stx + 1) == 6 {
+            if txt_eq(stx + 1, "(") == 1 {
+                if tk_kind(stx + 2) == 1 { frx = stx + 2 }
+            }
+        }
+    }
     expr_assign()
+    if tk_kind(stx) == 1 {
+        if tk_kind(stx + 1) == 6 {
+            if txt_eq(stx + 1, "=") == 1 {
+                rsx i32 = sym_find(stx)
+                if rsx >= 0 {
+                    if sym_code(rsx) == 12 {
+                        row void = gstate
+                        if rmb == 1 {
+                            row.(i32[512])[rsx] = 3
+                        } else {
+                            /* 整变量重绑定按新右值重判（§11.1）：非 malloc 来源不再释放 */
+                            row.(i32[512])[rsx] = 0
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if frx >= 0 {
+        rfx i32 = sym_find(frx)
+        if rfx >= 0 {
+            rst void = gstate
+            rst.(i32[512])[rfx] = 0
+        }
+    }
     eo(";")
 }
 
 func block_main() {
+    gn0m i32 = gn
     need_p("{")
     eo("{ __nihao_init(); ")
     skip_nl()
     while ck() != 8 {
         if is_p("}") == 1 {
             adv()
+            emit_scope_frees(gn0m)
             eo("return 0; }")
             return
         }
         stmt()
         skip_nl()
     }
+    emit_scope_frees(gn0m)
     eo("return 0; }")
 }
 
@@ -3036,6 +3116,25 @@ func emit_switch() {
 func emit_return() {
     adv()
     skip_nl()
+    /* 裸标识符返回：堆所有权随返回值移交调用方（§7 / §11.1），本函数退出不再 free */
+    if ck() == 1 {
+        nx9 i32 = gi + 1
+        if tk_kind(nx9) == 7 {
+            re9 i32 = sym_find(gi)
+            if re9 >= 0 {
+                owr void = gstate
+                owr.(i32[512])[re9] = 0
+            }
+        } else if tk_kind(nx9) == 6 {
+            if txt_eq(nx9, "}") == 1 {
+                re9 i32 = sym_find(gi)
+                if re9 >= 0 {
+                    owr void = gstate
+                    owr.(i32[512])[re9] = 0
+                }
+            }
+        }
+    }
     if is_p(";") == 1 { eo("return;") adv() return }
     if is_p("}") == 1 { eo("return;") return }
     if ck() == 7 { eo("return;") return }
@@ -3799,9 +3898,16 @@ func emit_decl(vis i32) {
     }
     gi = dend
 
+    mflag i32 = 0
     if is_p("=") == 1 {
         adv()
         skip_nl()
+        /* 右值是否以 malloc( 开头（堆所有权判据，§11.1） */
+        if txt_eq(gi, "malloc") == 1 {
+            if tk_kind(gi + 1) == 6 {
+                if txt_eq(gi + 1, "(") == 1 { mflag = 1 }
+            }
+        }
         /* 顶层非常量初值（malloc/create 等调用）：C 文件作用域不允许，
          * 挪进 __nihao_init()，main 开头调用 */
         if ck() == 1 {
@@ -3843,7 +3949,10 @@ func emit_decl(vis i32) {
                             pend_st = 1
                             glastfrz = sv12
                         } else if vis == 2 {
-                            if st9.(i32[512])[sv12] == 1 {
+                            ssv i32 = st9.(i32[512])[sv12]
+                            if ssv == 1 {
+                                emsg("cannot transfer ownership of a frozen pointer")
+                            } else if ssv == 4 {
                                 emsg("cannot transfer ownership of a frozen pointer")
                             } else {
                                 pend_src = sv12
@@ -4003,9 +4112,41 @@ func emit_decl(vis i32) {
         else if d > 0 { espace() ec(61) espace() ec(123) ec(48) ec(125) }
         else { espace() ec(61) espace() ec(48) }
     }
+    /* 堆所有权登记（§11.1/§12.1）：右值以 malloc( 开头 → 拥有堆块（状态 3）；
+     * flow→flow 转移 → 接收方接管，源失效并放弃（退出不再 free，防双释放）。
+     * 必须先于下面的失效应用执行：登记要读源转移前的所有权状态。 */
+    dti i32 = sym_find(nt)
+    if dti >= 0 {
+        dc9 i32 = sym_code(dti)
+        if dc9 == 12 {
+            stw void = gstate
+            if mflag == 1 {
+                stw.(i32[512])[dti] = 3
+            } else if pend_st == 2 {
+                sts void = gstate
+                if sts.(i32[512])[pend_src] == 3 {
+                    stw.(i32[512])[dti] = 3
+                } else {
+                    stw.(i32[512])[dti] = 0
+                }
+            } else {
+                stw.(i32[512])[dti] = 0
+            }
+        }
+    }
     if pend_src >= 0 {
         sv14 void = gstate
-        sv14.(i32[512])[pend_src] = pend_st
+        if pend_st == 1 {
+            /* 冻结借用：源若拥有堆块（3）→ 4=冻结且拥有；解冻时恢复 3。
+               注意用条件式读取（声明式读取会构成借用，冻结后续写入） */
+            if sv14.(i32[512])[pend_src] == 3 {
+                sv14.(i32[512])[pend_src] = 4
+            } else {
+                sv14.(i32[512])[pend_src] = 1
+            }
+        } else {
+            sv14.(i32[512])[pend_src] = pend_st
+        }
     }
     eo(";")
 }
