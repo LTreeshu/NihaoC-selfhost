@@ -455,6 +455,8 @@ func sym_add(nt i32, code i32, dims i32, pt i32, vis i32) i32 {
     f.(i32[512])[gn] = vis
     sc void = gslice
     sc.(i32[512])[gn] = 0
+    st9z void = gstate
+    st9z.(i32[512])[gn] = 0
     gn = gn + 1
     return gn - 1
 }
@@ -2410,22 +2412,23 @@ func emit_fnptr_decl(nameTok i32, retc i32, vis i32) {
 
 /* ================= 语句 ================= */
 
-/* 块/函数退出：对本区间内仍拥有堆块（状态 3）的 void* 符号生成 free（§11.1 自动释放）。
- * 只处理 code 12（void*，malloc 绑定的载体）；字面量/&x/聚合初值从不登记所有权。
- * 转移/重绑定/随返回移交都会先把状态清掉，故不会双释放。 */
-func emit_scope_frees(gn0 i32) {
+/* 块/函数退出：对本区间内仍拥有堆块（状态 3）的符号生成 free（§11.1 自动释放）。
+ * keep=0（块退出，控制流继续前进）：释放后清状态，防止后续路径双释放；
+ * keep=1（return 路径，控制流不再前进）：保留状态——不走本 return 的路径仍需在
+ *   其自身出口释放，每条运行路径恰释放一次，绝不双释放。
+ * 状态 3 只在登记路径刻意设置；sym_add 统一清零保证无陈旧态。 */
+func emit_scope_frees(gn0 i32, keep i32) {
     k9 i32 = gn0
     while k9 < gn {
         stb void = gstate
         if stb.(i32[512])[k9] == 3 {
-            c9 i32 = sym_code(k9)
-            if c9 == 12 {
+            if keep == 0 {
                 stb.(i32[512])[k9] = 0
-                nm9 void = gnames
-                eo("free(")
-                etk(nm9.(i32[512])[k9])
-                eo("); ")
             }
+            nm9 void = gnames
+            eo("free((void*)")
+            etk(nm9.(i32[512])[k9])
+            eo("); ")
         }
         k9 = k9 + 1
     }
@@ -2464,7 +2467,7 @@ func block() {
         }
         ks = ks + 1
     }
-    emit_scope_frees(gn0)
+    emit_scope_frees(gn0, 0)
     eo("}")
 }
 
@@ -2661,7 +2664,16 @@ func stmt() {
                             if txt_eq(nx + 1, "(") == 1 {
                                 eo("int64_t ")
                                 etk(nt)
-                                sym_add(nt, 4, 0, 0, vis)
+                                nsi9 i32 = sym_add(nt, 4, 0, 0, vis)
+                                /* flow 返回值 / malloc：接收方登记堆所有权（§7.2/§11.1） */
+                                stc void = gstate
+                                if fn_ret_vis(nx) == 2 {
+                                    stc.(i32[512])[nsi9] = 3
+                                } else {
+                                    if txt_eq(nx, "malloc") == 1 {
+                                        stc.(i32[512])[nsi9] = 3
+                                    }
+                                }
                                 espace()
                                 ec(61)
                                 espace()
@@ -2820,14 +2832,14 @@ func block_main() {
     while ck() != 8 {
         if is_p("}") == 1 {
             adv()
-            emit_scope_frees(gn0m)
+            emit_scope_frees(gn0m, 0)
             eo("return 0; }")
             return
         }
         stmt()
         skip_nl()
     }
-    emit_scope_frees(gn0m)
+    emit_scope_frees(gn0m, 0)
     eo("return 0; }")
 }
 
@@ -3134,6 +3146,64 @@ func emit_return() {
                 }
             }
         }
+    }
+    /* 提前 return 也生成退出释放（§11.1）：定位本函数符号区间（emit_func 的 code 0 哨兵），
+       统计仍拥有堆块的符号；有则把 return 重构为
+       { T __nrv = (expr); free...; return __nrv; }——先求值后释放，避免 UAF */
+    fst i32 = 0
+    k10 i32 = gn - 1
+    while k10 >= 0 {
+        if sym_code(k10) == 0 {
+            fst = k10 + 1
+            break
+        }
+        k10 = k10 - 1
+    }
+    cnt10 i32 = 0
+    k11 i32 = fst
+    while k11 < gn {
+        st10 void = gstate
+        if st10.(i32[512])[k11] == 3 {
+            cnt10 = cnt10 + 1
+        }
+        k11 = k11 + 1
+    }
+    if cnt10 > 0 {
+        if is_p(";") == 1 { adv() eo("{ ") emit_scope_frees(fst, 1) eo("return; }") return }
+        if is_p("}") == 1 { eo("{ ") emit_scope_frees(fst, 1) eo("return; }") return }
+        if ck() == 7 { eo("{ ") emit_scope_frees(fst, 1) eo("return; }") return }
+        if ck() == 8 { eo("{ ") emit_scope_frees(fst, 1) eo("return; }") return }
+        if is_p("{") == 1 {
+            eo("{ ")
+            if gret >= 20 { ctype(gret) } else { eo("int64_t") }
+            eo(" __nrv = (")
+            ec(123)
+            adv()
+            skip_nl()
+            if is_p("}") == 0 {
+                expr_assign()
+                while eat_p(",") == 1 {
+                    ec(44)
+                    espace()
+                    skip_nl()
+                    expr_assign()
+                }
+            }
+            need_p("}")
+            ec(125)
+            eo(") ; ")
+            emit_scope_frees(fst, 1)
+            eo("return __nrv; }")
+            return
+        }
+        eo("{ ")
+        if gret >= 20 { ctype(gret) } else { eo("int64_t") }
+        eo(" __nrv = (")
+        expr_assign()
+        eo(") ; ")
+        emit_scope_frees(fst, 1)
+        eo("return __nrv; }")
+        return
     }
     if is_p(";") == 1 { eo("return;") adv() return }
     if is_p("}") == 1 { eo("return;") return }
@@ -3902,10 +3972,20 @@ func emit_decl(vis i32) {
     if is_p("=") == 1 {
         adv()
         skip_nl()
-        /* 右值是否以 malloc( 开头（堆所有权判据，§11.1） */
+        /* 右值是否以 malloc( 开头（堆所有权判据，§11.1）；
+           或为 flow 返回值函数调用（所有权随返回移交调用方，§7.2） */
         if txt_eq(gi, "malloc") == 1 {
             if tk_kind(gi + 1) == 6 {
                 if txt_eq(gi + 1, "(") == 1 { mflag = 1 }
+            }
+        }
+        if mflag == 0 {
+            if ck() == 1 {
+                if tk_kind(gi + 1) == 6 {
+                    if txt_eq(gi + 1, "(") == 1 {
+                        if fn_ret_vis(gi) == 2 { mflag = 1 }
+                    }
+                }
             }
         }
         /* 顶层非常量初值（malloc/create 等调用）：C 文件作用域不允许，
@@ -4418,6 +4498,9 @@ func emit_type_def(kind i32, inbody i32) {
 /* 函数定义：func name(params) [vis] ret { body } */
 func emit_func(haskw i32) {
     sav_gn i32 = gn
+    /* 函数哨兵符号（code 0，真实符号绝不占 code 0）：标记本函数符号区间起点，
+       供 emit_return 在提前退出时定位需释放的符号区间。随 gn = sav_gn 一并回收。 */
+    sym_add(gi, 0, 0, 0, 0)
     rvis0 i32 = 0
     if haskw == 0 {
         if gretvis == 1 { rvis0 = 1 }

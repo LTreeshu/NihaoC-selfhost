@@ -136,15 +136,14 @@ SELFHOST OK
 ```
 $ ./selftest.sh            # 用 boot2
 $ ./selftest.sh ./boot3.exe  # 用自举产物
-自举回归（boot2.exe）：OK 9 / FAIL 0 / SKIP 0
+自举回归（boot2.exe）：OK 11 / FAIL 0 / SKIP 0
 ```
 
-当前 9 份：`array_param`（数组形参）、`struct_value_return`（按值返回结构体）、
-`struct_array_param`（结构体数组形参 + 成员改写）、`free_heap`（堆分配 + `free`）、
-`agg_array_member`（聚合数组成员经 `.(T)` 读写）、`brace_newline`（函数体 `{` 换行）、
-`u64_type`（`u64` 类型），以及本轮新增的 `flow_transfer`（flow→flow 转移仅接收方释放，
-双释放即崩）、`flow_rebind`（整变量重绑定按新右值重判，字面量不 free）。
-在 ncc v0.2.3 下，boot2 / boot3 / boot4 三个编译器均 `OK 9 / FAIL 0`。其中 `array_param` 等曾暴露真实缺陷——
+当前 11 份：`array_param`、`struct_value_return`、`struct_array_param`、`free_heap`、
+`agg_array_member`、`brace_newline`、`u64_type`、`flow_transfer`、`flow_rebind`，
+以及本轮新增的 `flow_return_recv`（flow 返回值由调用方接管并退出释放，双释放即崩）、
+`flow_early_return`（提前 return 生成退出释放，每条运行路径恰释放一次）。
+在 ncc v0.2.3 下，boot2 / boot3 / boot4 三个编译器均 `OK 11 / FAIL 0`。其中 `array_param` 等曾暴露真实缺陷——
 `emit_protos()` 生成原型时丢掉数组后缀，定义处是 `int32_t a[]`、原型是 `int32_t`，
 tcc 报 `incompatible types for redefinition`，且**编译器本身不报错**（静默产出不可编译的 C）。
 修法是原型侧把 `pd > 0` 的类型衰减成 `T*`。
@@ -282,3 +281,21 @@ N0 是 NihaoC 的极小子集（`func` / 声明 / 赋值 / `if-else` / `while` /
   **ASan 0 内存错误**（编译器 + 全部产物）。回归：`tests/flow_transfer.nc`、`tests/flow_rebind.nc`。
   已知边界：函数内 `return` 提前退出跳过退出释放（泄漏不悬垂）；经 flow 返回函数的调用方
   隐式接收不登记（泄漏不双释放）；多变量声明初值不登记。
+
+- **2026-11-28 · 补齐内存管理边界：flow 返回接收登记 + 提前 return 退出释放**：
+  - **调用方接收 flow 返回值登记所有权**（§7.2）：显式 `r void = mk()` 走 emit_decl 的
+    malloc 判据扩展（右值 `name(` 且 `fn_ret_vis == 2` → 登记 3）；隐式 `r = mk()` 走
+    隐式调用声明分支（`fn_ret_vis(nx) == 2` 或 `malloc` → 登记 3，载体可为 int64，
+    free 带 `(void*)` 转换）。被调方 `return p` 的移交守卫保证不双释放。
+  - **提前 return 生成退出释放**：`emit_func` 为每个函数压入一个 **code 0 哨兵符号**
+    （真实符号绝不占 code 0，随 `gn = sav_gn` 回收），`emit_return` 反向扫描定位本函数
+    符号区间并统计状态 3；有则把 return 重构为
+    `{ T __nrv = (expr); free((void*)x); ...; return __nrv; }`——**先求值后释放**，杜绝
+    `return p.(T)` 形态的 UAF。哨兵方案绕开了 ncc「编译器源码全局变量数量硬上限」。
+  - **路径敏感性**：return 路径的释放**不清编译期状态**（`emit_scope_frees(gn0, keep=1)`，
+    块退出 keep=0）——控制流不再前进故不会双执行，不走该 return 的路径由其自身出口
+    恰释放一次。`sym_add` 统一清零 gstate，消除跨函数索引复用的陈旧状态。
+  - 验证：pos 73 / err 36 / selftest **11**（boot2/3/4 全 11/0）/ **FIXPOINT OK** /
+    **ASan 0 内存错误**。回归：`tests/flow_return_recv.nc`、`tests/flow_early_return.nc`。
+  - 剩余已知边界：多变量声明初值不登记；if/else 汇合点的路径合并释放仍偏保守
+    （某路径释放过的符号在另一路径出口按未释放处理 → 至多泄漏、绝不双释放）。
