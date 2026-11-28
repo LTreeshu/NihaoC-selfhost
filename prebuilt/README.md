@@ -5,11 +5,11 @@
 ## 来源与可信度
 
 - 生成链：`ncc v0.2.3 (ir-c)` → `boot2` → `boot2` 编译 `boot.nc` → `boot3` → `boot3` 编译 `boot.nc` → **`boot4`**（本二进制）。
-- 源码：`boot2/boot.nc`，对应提交 `294a635`。
+- 源码：`boot2/boot.nc`，对应提交（见 git log v0.2.6-selfhost）。
 - 不动点已验证：`boot3` 与 `boot4` 编译同一份 `boot.nc` 得到的 C **逐字节相同**（`b3.c ≡ b4.c`）。
 - 平台：Windows x86-64，用 tcc 0.9.27 链接。
-- 验收（均以本二进制运行）：pos 73/73、err 36/36、selftest 9/9、samples 全绿、ASan 0 内存错误。
-- 相对上一版新增：flow 自动释放（§11.1/§12.1 内存管理：malloc 绑定退出 free、转移/重绑定/显式 free/返回移交全语义）。
+- 验收（均以本二进制运行）：pos 73/73、err 36/36、selftest 11/11、samples 全绿、ASan 0 内存错误。
+- 相对上一版新增：flow 自动释放（§11.1/§12.1）+ flow 返回接收登记 + 提前 return 退出释放（每路径恰释放一次）。
 
 ## 用法
 
